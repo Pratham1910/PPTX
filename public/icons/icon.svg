@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="80" fill="#6366f1"/>
+  <!-- slide canvas -->
+  <rect x="72" y="108" width="368" height="238" rx="18" fill="#fff" opacity="0.12"/>
+  <rect x="72" y="108" width="368" height="238" rx="18" fill="none" stroke="#fff" stroke-width="12" opacity="0.9"/>
+  <!-- slide content lines -->
+  <rect x="112" y="152" width="220" height="20" rx="10" fill="#fff" opacity="0.95"/>
+  <rect x="112" y="188" width="180" height="14" rx="7" fill="#fff" opacity="0.75"/>
+  <rect x="112" y="214" width="220" height="14" rx="7" fill="#fff" opacity="0.6"/>
+  <rect x="112" y="240" width="150" height="14" rx="7" fill="#fff" opacity="0.5"/>
+  <!-- slide dots -->
+  <circle cx="176" cy="296" r="10" fill="#fff" opacity="0.9"/>
+  <circle cx="208" cy="296" r="10" fill="#fff" opacity="0.4"/>
+  <circle cx="240" cy="296" r="10" fill="#fff" opacity="0.4"/>
+  <circle cx="272" cy="296" r="10" fill="#fff" opacity="0.4"/>
+  <!-- stand -->
+  <rect x="230" y="346" width="52" height="20" rx="4" fill="#fff" opacity="0.7"/>
+  <rect x="196" y="366" width="120" height="16" rx="8" fill="#fff" opacity="0.6"/>
+</svg>
