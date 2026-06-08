@@ -92,6 +92,35 @@ export function generateThemeCss(theme: Theme): string {
   box-sizing: border-box;
 }
 
+/* Content inside an abs wrapper must fill it completely */
+.reveal section .ppt-abs-el figure {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.reveal section .ppt-abs-el figure .ppt-image {
+  width: 100% !important;
+  height: 100% !important;
+  flex: 1;
+  min-height: 0;
+  max-width: unset !important;
+  max-height: unset !important;
+  margin: 0 !important;
+  border-radius: var(--ppt-radius);
+}
+.reveal section .ppt-abs-el figure .ppt-video,
+.reveal section .ppt-abs-el figure .ppt-video-embed {
+  width: 100% !important;
+  height: 100% !important;
+  flex: 1;
+  min-height: 0;
+  max-width: unset !important;
+}
+
 /* ── Typography ── */
 .reveal h1, .reveal h2, .reveal h3,
 .reveal h4, .reveal h5, .reveal h6 {

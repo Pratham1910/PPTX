@@ -173,7 +173,13 @@ function renderBulletList(el: BulletListElement): string {
 
 function renderImage(el: ImageElement, ctx: RenderContext): string {
   const src = resolveAssetUrl(el.assetId, ctx);
-  const img = `<img class="ppt-image" src="${escapeHtml(src)}" alt="${escapeHtml(el.alt)}" style="object-fit: ${el.fit ?? 'contain'}">`;
+  const isAbs = el.position.mode === 'absolute';
+  // In absolute mode the ppt-abs-el wrapper provides the size; the img must
+  // fill it completely.  In flow mode use natural/max sizing.
+  const imgStyle = isAbs
+    ? `width:100%;height:100%;object-fit:${el.fit ?? 'contain'};display:block;`
+    : `object-fit:${el.fit ?? 'contain'};`;
+  const img = `<img class="ppt-image" src="${escapeHtml(src)}" alt="${escapeHtml(el.alt)}" style="${imgStyle}">`;
   const caption = el.caption
     ? `<p class="ppt-image-caption">${escapeHtml(el.caption)}</p>`
     : '';
@@ -183,6 +189,9 @@ function renderImage(el: ImageElement, ctx: RenderContext): string {
 // ─── VIDEO ───────────────────────────────────────────────────
 
 function renderVideo(el: VideoElement, ctx: RenderContext): string {
+  const isAbs = el.position.mode === 'absolute';
+  const fillStyle = isAbs ? 'width:100%;height:100%;' : '';
+
   // External embed (YouTube, Vimeo) → iframe
   if (el.url && (el.url.includes('youtube.com') || el.url.includes('vimeo.com'))) {
     const iframeSrc = escapeHtml(el.url);
@@ -190,7 +199,7 @@ function renderVideo(el: VideoElement, ctx: RenderContext): string {
       ? `<p class="ppt-image-caption">${escapeHtml(el.caption)}</p>`
       : '';
     return `<figure>
-  <iframe class="ppt-video-embed" src="${iframeSrc}" allowfullscreen loading="lazy"></iframe>
+  <iframe class="ppt-video-embed" src="${iframeSrc}" allowfullscreen loading="lazy" style="${fillStyle}"></iframe>
   ${caption}
 </figure>`;
   }
@@ -213,7 +222,7 @@ function renderVideo(el: VideoElement, ctx: RenderContext): string {
     : '';
 
   return `<figure>
-  <video class="ppt-video"${autoplay}${loop}${muted}${controls}${poster} preload="metadata">
+  <video class="ppt-video"${autoplay}${loop}${muted}${controls}${poster} preload="metadata" style="${fillStyle}">
     <source src="${escapeHtml(src)}">
   </video>
   ${caption}
