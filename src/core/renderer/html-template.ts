@@ -252,10 +252,12 @@ function buildRevealConfig(cfg: RevealSettings, editorMode = false): string {
   }
 
   function __pptRunMermaidAndAnimate() {
-    return mermaid.run({ querySelector: '.mermaid' }).then(function() {
-      document.querySelectorAll('.ppt-diagram[data-diagram-animated="true"]').forEach(__pptAnimateDiagram);
-      Reveal.sync();
-    });
+    return mermaid.run({ querySelector: '.mermaid' })
+      .catch(function() { /* invalid syntax while editing — ignore, Reveal still runs */ })
+      .then(function() {
+        document.querySelectorAll('.ppt-diagram[data-diagram-animated="true"]').forEach(__pptAnimateDiagram);
+        Reveal.sync();
+      });
   }
 
   Reveal.initialize({

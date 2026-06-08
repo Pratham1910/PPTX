@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, useCallback, useEffect } from 'react';
+import { useRef, useState, useCallback, useEffect } from 'react';
 import { useEditorStore } from '../../store/useEditorStore.ts';
 import { renderPresentation } from '@/core/renderer';
 import { LOCAL_VENDOR_URLS } from '../../vendor-urls.ts';
@@ -16,10 +16,18 @@ export default function PreviewFrame() {
   // postMessage that would bounce back and re-select the same slide.
   const isProgrammatic = useRef(false);
 
-  const html = useMemo(
-    () => renderPresentation(presentation, { editorMode: true, vendorUrls: LOCAL_VENDOR_URLS }),
-    [presentation],
+  // Debounce the iframe reload so that every keystroke doesn't tear down
+  // and rebuild Reveal+Mermaid — only re-render 500 ms after typing stops.
+  const [html, setHtml] = useState(() =>
+    renderPresentation(presentation, { editorMode: true, vendorUrls: LOCAL_VENDOR_URLS }),
   );
+  useEffect(() => {
+    const t = setTimeout(
+      () => setHtml(renderPresentation(presentation, { editorMode: true, vendorUrls: LOCAL_VENDOR_URLS })),
+      500,
+    );
+    return () => clearTimeout(t);
+  }, [presentation]);
 
   // ── parent → iframe ───────────────────────────────────────────────────────
   // Every time the selected slide changes (e.g. user clicks left panel),

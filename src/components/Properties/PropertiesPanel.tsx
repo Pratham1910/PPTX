@@ -4,6 +4,7 @@ import type {
   HeadingElement,
   BulletListElement,
   ImageElement,
+  VideoElement,
   CodeElement,
   CalloutElement,
   TableElement,
@@ -15,6 +16,7 @@ import TextPanel from './panels/TextPanel.tsx';
 import HeadingPanel from './panels/HeadingPanel.tsx';
 import BulletListPanel from './panels/BulletListPanel.tsx';
 import ImagePanel from './panels/ImagePanel.tsx';
+import VideoPanel from './panels/VideoPanel.tsx';
 import CodePanel from './panels/CodePanel.tsx';
 import CalloutPanel from './panels/CalloutPanel.tsx';
 import TablePanel from './panels/TablePanel.tsx';
@@ -72,6 +74,7 @@ function ElementEditor({
     case 'heading':     return <HeadingPanel element={element as HeadingElement} {...props} />;
     case 'bullet-list': return <BulletListPanel element={element as BulletListElement} {...props} />;
     case 'image':       return <ImagePanel element={element as ImageElement} {...props} />;
+    case 'video':       return <VideoPanel element={element as VideoElement} {...props} />;
     case 'code':        return <CodePanel element={element as CodeElement} {...props} />;
     case 'callout':     return <CalloutPanel element={element as CalloutElement} {...props} />;
     case 'table':       return <TablePanel element={element as TableElement} {...props} />;

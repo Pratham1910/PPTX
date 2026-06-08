@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useEditorStore } from '../../store/useEditorStore.ts';
 import type { ImageElement, VideoElement, EmbedElement, DiagramElement, Asset } from '@/core/schema';
+import FilePickerField from '../shared/FilePickerField.tsx';
 
 type Tab = 'image' | 'video' | 'svg' | 'diagram';
 
@@ -13,11 +14,14 @@ function uuid() {
 }
 
 function guessImageMime(url: string): string {
+  if (url.startsWith('data:')) {
+    const m = url.match(/^data:([^;]+);/);
+    return m?.[1] ?? 'image/jpeg';
+  }
   const ext = url.split('.').pop()?.toLowerCase().split('?')[0] ?? '';
   const map: Record<string, string> = {
     png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
-    gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml',
-    avif: 'image/avif',
+    gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml', avif: 'image/avif',
   };
   return map[ext] ?? 'image/jpeg';
 }
@@ -46,39 +50,47 @@ const DIAGRAM_PRESETS: Array<{ label: string; type: DiagramElement['diagramType'
 export default function InsertMediaModal({ onClose }: Props) {
   const { selectedSlideIndex, addElement } = useEditorStore();
   const [tab, setTab] = useState<Tab>('image');
+
+  // Shared media state
   const [url, setUrl] = useState('');
+  const [localFileName, setLocalFileName] = useState<string | undefined>();
   const [alt, setAlt] = useState('');
   const [caption, setCaption] = useState('');
   const [error, setError] = useState('');
-  // Diagram-specific state
+
+  // Diagram state
   const [diagSource, setDiagSource] = useState(DIAGRAM_PRESETS[0].source);
   const [diagType, setDiagType] = useState<DiagramElement['diagramType']>('flowchart');
   const [diagTheme, setDiagTheme] = useState<DiagramElement['theme']>('dark');
   const [diagAnimated, setDiagAnimated] = useState(false);
 
   const tabs: Array<{ id: Tab; label: string; icon: string }> = [
-    { id: 'image',   label: 'Image',    icon: '🖼️' },
-    { id: 'video',   label: 'Video',    icon: '▶️' },
-    { id: 'svg',     label: 'SVG/Embed',icon: '⬡' },
-    { id: 'diagram', label: 'Diagram',  icon: '⬡' },
+    { id: 'image',   label: 'Image',     icon: '🖼️' },
+    { id: 'video',   label: 'Video',     icon: '▶️' },
+    { id: 'svg',     label: 'SVG/Embed', icon: '⬡' },
+    { id: 'diagram', label: 'Diagram',   icon: '⬡' },
   ];
 
   function reset() {
     setUrl('');
+    setLocalFileName(undefined);
     setAlt('');
     setCaption('');
+    setError('');
+  }
+
+  function handleSourceChange(val: string, fileName?: string) {
+    setUrl(val);
+    setLocalFileName(fileName);
     setError('');
   }
 
   function handleInsertDiagram() {
     if (!diagSource.trim()) { setError('Mermaid source cannot be empty.'); return; }
     const el: DiagramElement = {
-      id: uuid(),
-      type: 'diagram',
-      source: diagSource.trim(),
-      diagramType: diagType,
-      theme: diagTheme,
-      animated: diagAnimated,
+      id: uuid(), type: 'diagram',
+      source: diagSource.trim(), diagramType: diagType,
+      theme: diagTheme, animated: diagAnimated,
       position: { mode: 'flow' },
     };
     addElement(selectedSlideIndex, el);
@@ -88,24 +100,38 @@ export default function InsertMediaModal({ onClose }: Props) {
   function handleInsert() {
     if (tab === 'diagram') { handleInsertDiagram(); return; }
     const trimmed = url.trim();
-    if (!trimmed) { setError('Please enter a URL.'); return; }
+    if (!trimmed) { setError('Please enter a URL or pick a file.'); return; }
 
-    if (tab === 'image') {
+    if (tab === 'image' || tab === 'svg') {
+      const isData = trimmed.startsWith('data:');
+      const isSvgFile = trimmed.endsWith('.svg') || trimmed.includes('.svg?') ||
+                        guessImageMime(trimmed) === 'image/svg+xml';
+
+      if (isSvgFile || tab === 'svg' && !isData && !trimmed.match(/\.(jpg|jpeg|png|gif|webp|avif)/)) {
+        // SVG URL → image element
+        if (!trimmed.startsWith('http') && !isData) {
+          // Treat non-image, non-data as an iframe embed
+          const el: EmbedElement = {
+            id: uuid(), type: 'embed', embedType: 'iframe',
+            url: trimmed, allowInteraction: true,
+            position: { mode: 'flow' },
+          };
+          addElement(selectedSlideIndex, el);
+          onClose();
+          return;
+        }
+      }
+
       const assetId = uuid();
+      const mimeType = guessImageMime(trimmed);
+      const filename = localFileName ?? trimmed.split('/').pop() ?? 'image';
       const asset: Asset = {
-        id: assetId,
-        type: 'image',
-        filename: trimmed.split('/').pop() ?? 'image',
-        mimeType: guessImageMime(trimmed),
-        sizeBytes: 0,
-        url: trimmed,
-        uploadedAt: new Date().toISOString(),
-        metadata: {},
+        id: assetId, type: 'image', filename, mimeType,
+        sizeBytes: 0, url: trimmed,
+        uploadedAt: new Date().toISOString(), metadata: {},
       };
       const el: ImageElement = {
-        id: uuid(),
-        type: 'image',
-        assetId,
+        id: uuid(), type: 'image', assetId,
         alt: alt || 'Image',
         caption: caption || undefined,
         fit: 'contain',
@@ -115,53 +141,30 @@ export default function InsertMediaModal({ onClose }: Props) {
       onClose();
 
     } else if (tab === 'video') {
-      const embed = isVideoEmbed(trimmed);
-      const el: VideoElement = {
-        id: uuid(),
-        type: 'video',
-        url: embed ? toEmbedUrl(trimmed) : trimmed,
-        autoplay: false,
-        loop: false,
-        muted: false,
-        controls: true,
-        caption: caption || undefined,
-        position: { mode: 'flow' },
-      };
-      addElement(selectedSlideIndex, el);
-      onClose();
-
-    } else {
-      // SVG / embed → treat as an image with SVG MIME or an iframe
-      const isSvg = trimmed.endsWith('.svg') || trimmed.includes('.svg?');
-      if (isSvg) {
+      const isData = trimmed.startsWith('data:');
+      if (isData) {
         const assetId = uuid();
         const asset: Asset = {
-          id: assetId,
-          type: 'image',
-          filename: trimmed.split('/').pop() ?? 'image.svg',
-          mimeType: 'image/svg+xml',
-          sizeBytes: 0,
-          url: trimmed,
-          uploadedAt: new Date().toISOString(),
-          metadata: {},
+          id: assetId, type: 'video',
+          filename: localFileName ?? 'video',
+          mimeType: trimmed.match(/^data:([^;]+);/)?.[1] ?? 'video/mp4',
+          sizeBytes: 0, url: trimmed,
+          uploadedAt: new Date().toISOString(), metadata: {},
         };
-        const el: ImageElement = {
-          id: uuid(),
-          type: 'image',
-          assetId,
-          alt: alt || 'SVG graphic',
+        const el: VideoElement = {
+          id: uuid(), type: 'video', assetId,
+          autoplay: false, loop: false, muted: false, controls: true,
           caption: caption || undefined,
-          fit: 'contain',
           position: { mode: 'flow' },
         };
         addElement(selectedSlideIndex, el, asset);
       } else {
-        const el: EmbedElement = {
-          id: uuid(),
-          type: 'embed',
-          embedType: 'iframe',
-          url: trimmed,
-          allowInteraction: true,
+        const embed = isVideoEmbed(trimmed);
+        const el: VideoElement = {
+          id: uuid(), type: 'video',
+          url: embed ? toEmbedUrl(trimmed) : trimmed,
+          autoplay: false, loop: false, muted: false, controls: true,
+          caption: caption || undefined,
           position: { mode: 'flow' },
         };
         addElement(selectedSlideIndex, el);
@@ -170,10 +173,16 @@ export default function InsertMediaModal({ onClose }: Props) {
     }
   }
 
-  const placeholders: Record<'image' | 'video' | 'svg', string> = {
+  const urlPlaceholders: Record<'image' | 'video' | 'svg', string> = {
     image: 'https://example.com/photo.jpg',
-    video: 'https://youtube.com/watch?v=... or direct .mp4 URL',
-    svg: 'https://example.com/logo.svg or iframe URL',
+    video: 'https://youtube.com/watch?v=… or .mp4 URL',
+    svg:   'https://example.com/logo.svg or iframe URL',
+  };
+
+  const fileAccept: Record<'image' | 'video' | 'svg', string> = {
+    image: 'image/*,image/svg+xml',
+    video: 'video/*',
+    svg:   'image/svg+xml,image/*',
   };
 
   return (
@@ -181,7 +190,7 @@ export default function InsertMediaModal({ onClose }: Props) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="bg-[#161b27] border border-white/10 rounded-xl shadow-2xl w-[460px] overflow-hidden">
+      <div className="bg-[#161b27] border border-white/10 rounded-xl shadow-2xl w-[480px] overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
           <h2 className="text-sm font-semibold text-white">Insert Media</h2>
@@ -211,7 +220,6 @@ export default function InsertMediaModal({ onClose }: Props) {
           {/* ── Diagram tab ── */}
           {tab === 'diagram' && (
             <>
-              {/* Presets */}
               <div className="flex flex-col gap-1.5">
                 <span className="field-label">Quick Start Preset</span>
                 <div className="grid grid-cols-3 gap-1.5">
@@ -231,8 +239,6 @@ export default function InsertMediaModal({ onClose }: Props) {
                   ))}
                 </div>
               </div>
-
-              {/* Source editor */}
               <label className="flex flex-col gap-1">
                 <span className="field-label">Mermaid Source</span>
                 <textarea
@@ -243,8 +249,6 @@ export default function InsertMediaModal({ onClose }: Props) {
                   onChange={(e) => setDiagSource(e.target.value)}
                 />
               </label>
-
-              {/* Theme + Animated */}
               <div className="flex gap-3">
                 <label className="flex flex-col gap-1 flex-1">
                   <span className="field-label">Theme</span>
@@ -282,20 +286,14 @@ export default function InsertMediaModal({ onClose }: Props) {
           {/* ── Media tabs (image / video / svg) ── */}
           {tab !== 'diagram' && (
             <>
-              <label className="flex flex-col gap-1">
-                <span className="field-label">
-                  {tab === 'image' ? 'Image URL' : tab === 'video' ? 'Video URL' : 'SVG / Embed URL'}
-                </span>
-                <input
-                  type="url"
-                  className="field-input"
-                  placeholder={placeholders[tab as 'image' | 'video' | 'svg']}
-                  value={url}
-                  onChange={(e) => { setUrl(e.target.value); setError(''); }}
-                  onKeyDown={(e) => { if (e.key === 'Enter') handleInsert(); }}
-                  autoFocus
-                />
-              </label>
+              {/* File picker + URL field */}
+              <FilePickerField
+                label={tab === 'image' ? 'Image Source' : tab === 'video' ? 'Video Source' : 'SVG / Embed Source'}
+                accept={fileAccept[tab as 'image' | 'video' | 'svg']}
+                value={url}
+                placeholder={urlPlaceholders[tab as 'image' | 'video' | 'svg']}
+                onChange={handleSourceChange}
+              />
 
               {tab !== 'video' && (
                 <label className="flex flex-col gap-1">
@@ -323,31 +321,33 @@ export default function InsertMediaModal({ onClose }: Props) {
 
               {tab === 'image' && (
                 <p className="text-xs text-gray-500 leading-snug">
-                  Supports JPG, PNG, WebP, GIF, AVIF. Use a publicly accessible URL or a relative path within your project.
+                  Supports JPG, PNG, WebP, GIF, AVIF, SVG — paste a URL or pick a file from your device.
                 </p>
               )}
               {tab === 'video' && (
                 <p className="text-xs text-gray-500 leading-snug">
-                  Paste a YouTube, Vimeo, or direct .mp4/.webm URL. YouTube and Vimeo are automatically converted to embed URLs.
+                  Paste a YouTube / Vimeo / .mp4 URL, or pick a local video file from your device.
                 </p>
               )}
               {tab === 'svg' && (
                 <p className="text-xs text-gray-500 leading-snug">
-                  SVG files render as images. Non-SVG URLs are embedded as an iframe (e.g. CodePen, Figma embed, external sites).
+                  SVG files render as images. Non-SVG URLs are embedded as an iframe (CodePen, Figma, etc.).
                 </p>
               )}
 
               {error && <p className="text-xs text-red-400">{error}</p>}
             </>
           )}
-
         </div>
 
         {/* Footer */}
         <div className="px-5 py-4 border-t border-white/10 flex justify-end gap-2">
           <button className="btn-ghost text-sm" onClick={onClose}>Cancel</button>
           <button className="btn-primary text-sm" onClick={handleInsert}>
-            {tab === 'diagram' ? 'Insert Diagram' : tab === 'image' ? 'Insert Image' : tab === 'video' ? 'Insert Video' : 'Insert Media'}
+            {tab === 'diagram' ? 'Insert Diagram'
+              : tab === 'image' ? 'Insert Image'
+              : tab === 'video' ? 'Insert Video'
+              : 'Insert Media'}
           </button>
         </div>
       </div>

@@ -361,8 +361,7 @@ function renderQuiz(el: QuizElement): string {
 
 function resolveAssetUrl(assetId: string, ctx: RenderContext): string {
   const asset = ctx.assetMap.get(assetId);
-  if (!asset) return '';
-  // In a real export: if embedAssets, return base64 data URI from disk
-  // Here: return the stored URL as-is
-  return asset.url;
+  if (asset) return asset.url;
+  // Fall-through: treat assetId as a direct URL or data: URI
+  return assetId;
 }

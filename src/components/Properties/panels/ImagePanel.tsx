@@ -1,5 +1,6 @@
 import type { ImageElement } from '@/core/schema';
 import { useEditorStore } from '../../../store/useEditorStore.ts';
+import FilePickerField from '../../shared/FilePickerField.tsx';
 
 interface Props {
   element: ImageElement;
@@ -12,18 +13,19 @@ const FIT_OPTIONS: ImageElement['fit'][] = ['cover', 'contain', 'fill', 'scale-d
 export default function ImagePanel({ element, slideIndex, elementIndex }: Props) {
   const { updateElement } = useEditorStore();
 
+  function patch(changes: Partial<ImageElement>) {
+    updateElement(slideIndex, elementIndex, changes as never);
+  }
+
   return (
     <div className="flex flex-col gap-3">
-      <label className="flex flex-col gap-1">
-        <span className="field-label">Asset ID / URL</span>
-        <input
-          type="text"
-          className="field-input font-mono text-xs"
-          value={element.assetId}
-          placeholder="asset-id or https://..."
-          onChange={(e) => updateElement(slideIndex, elementIndex, { assetId: e.target.value })}
-        />
-      </label>
+      <FilePickerField
+        label="Image / SVG Source"
+        accept="image/*,image/svg+xml"
+        value={element.assetId}
+        placeholder="https://… or pick a file below"
+        onChange={(val) => patch({ assetId: val })}
+      />
 
       <label className="flex flex-col gap-1">
         <span className="field-label">Alt Text</span>
@@ -31,8 +33,8 @@ export default function ImagePanel({ element, slideIndex, elementIndex }: Props)
           type="text"
           className="field-input"
           value={element.alt}
-          placeholder="Describe the image..."
-          onChange={(e) => updateElement(slideIndex, elementIndex, { alt: e.target.value })}
+          placeholder="Describe the image…"
+          onChange={(e) => patch({ alt: e.target.value })}
         />
       </label>
 
@@ -42,10 +44,8 @@ export default function ImagePanel({ element, slideIndex, elementIndex }: Props)
           type="text"
           className="field-input"
           value={element.caption ?? ''}
-          placeholder="Optional caption..."
-          onChange={(e) =>
-            updateElement(slideIndex, elementIndex, { caption: e.target.value || undefined })
-          }
+          placeholder="Optional caption…"
+          onChange={(e) => patch({ caption: e.target.value || undefined })}
         />
       </label>
 
@@ -54,9 +54,7 @@ export default function ImagePanel({ element, slideIndex, elementIndex }: Props)
         <select
           className="field-select"
           value={element.fit}
-          onChange={(e) =>
-            updateElement(slideIndex, elementIndex, { fit: e.target.value as ImageElement['fit'] })
-          }
+          onChange={(e) => patch({ fit: e.target.value as ImageElement['fit'] })}
         >
           {FIT_OPTIONS.map((f) => (
             <option key={f} value={f}>{f}</option>
