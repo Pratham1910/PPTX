@@ -72,12 +72,24 @@ export function generateThemeCss(theme: Theme): string {
 }
 
 .reveal section {
+  position: relative;
   padding: var(--ppt-py) var(--ppt-px);
   box-sizing: border-box;
   height: 100%;
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
+}
+
+/* Absolutely-positioned elements overlay the slide without disrupting flow */
+.reveal section .ppt-abs-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.reveal section .ppt-abs-el {
+  pointer-events: auto;
+  box-sizing: border-box;
 }
 
 /* ── Typography ── */

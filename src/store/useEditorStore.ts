@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 import { markdownToPresentation } from '@/core/parser';
 import type {
   Presentation,
@@ -62,11 +63,14 @@ interface EditorActions {
   applyTheme: (theme: Theme) => void;
   enterPresentationMode: () => void;
   exitPresentationMode: () => void;
+  markSaved: () => void;
 }
 
 const initialPresentation = SHOWCASE_PRESENTATION;
 
-export const useEditorStore = create<EditorState & EditorActions>((set, get) => ({
+export const useEditorStore = create<EditorState & EditorActions>()(
+  persist(
+    (set, get) => ({
   presentation: initialPresentation,
   selectedSlideIndex: 0,
   selectedElementIndex: null,
@@ -226,6 +230,8 @@ export const useEditorStore = create<EditorState & EditorActions>((set, get) => 
 
   exitPresentationMode: () => set({ isPresentationMode: false }),
 
+  markSaved: () => set({ isDirty: false }),
+
   reorderSlide: (from, to) =>
     set((state) => {
       const slides = [...state.presentation.slides];
@@ -240,6 +246,15 @@ export const useEditorStore = create<EditorState & EditorActions>((set, get) => 
         },
       };
     }),
-}));
+    }),
+    {
+      name: 'pptautomation-state',
+      partialize: (state) => ({
+        presentation: state.presentation,
+        selectedSlideIndex: state.selectedSlideIndex,
+      }),
+    }
+  )
+);
 
 export type { EditorState, EditorActions };

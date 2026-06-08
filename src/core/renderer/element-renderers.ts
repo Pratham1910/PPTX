@@ -59,11 +59,28 @@ export function renderElement(el: Element, ctx: RenderContext): string {
   const html = renderElementInner(el, ctx);
   if (!html) return '';
 
-  // Wrap with animation container only when needed
-  if (classNames) {
-    return `<div class="${classNames}"${attrString}>${html}</div>`;
+  const inner = classNames
+    ? `<div class="${classNames}"${attrString}>${html}</div>`
+    : html;
+
+  // Absolute-positioned elements: wrap in a positioned overlay div.
+  // Coordinates are percentages of the slide canvas (same units as the editor).
+  if (el.position.mode === 'absolute') {
+    const { x = 0, y = 0, width, height, zIndex = 1 } = el.position;
+    const style = [
+      'position:absolute',
+      `left:${x.toFixed(3)}%`,
+      `top:${y.toFixed(3)}%`,
+      width  != null ? `width:${width.toFixed(3)}%`   : 'width:auto',
+      height != null ? `height:${height.toFixed(3)}%` : '',
+      `z-index:${zIndex}`,
+      'overflow:visible',
+      'pointer-events:auto',
+    ].filter(Boolean).join(';');
+    return `<div class="ppt-abs-el" style="${style}">${inner}</div>`;
   }
-  return html;
+
+  return inner;
 }
 
 function renderElementInner(el: Element, ctx: RenderContext): string {

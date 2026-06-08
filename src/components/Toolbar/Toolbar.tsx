@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useEditorStore } from '../../store/useEditorStore.ts';
 import { exportHtmlSingleFile, exportHtmlZip } from '../../utils/download.ts';
 import MarkdownImportModal from './MarkdownImportModal.tsx';
@@ -33,15 +33,50 @@ const EDIT_ICON = (
 export default function Toolbar() {
   const {
     presentation, addSlide, deleteSlide,
-    selectedSlideIndex, isDirty,
+    selectedSlideIndex, isDirty, markSaved,
     isEditMode, enterEditMode, exitEditMode,
     enterPresentationMode,
   } = useEditorStore();
 
-  const [importOpen, setImportOpen]   = useState(false);
+  const [importOpen, setImportOpen]     = useState(false);
   const [templateOpen, setTemplateOpen] = useState(false);
-  const [insertOpen, setInsertOpen]   = useState(false);
-  const [exporting, setExporting]     = useState(false);
+  const [insertOpen, setInsertOpen]     = useState(false);
+  const [exporting, setExporting]       = useState(false);
+  const [saveFlash, setSaveFlash]       = useState(false);
+
+  // Auto-reset isDirty after 900 ms of no changes — localStorage is already
+  // written synchronously by Zustand persist, so this is just the indicator.
+  const dirtyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!isDirty) return;
+    if (dirtyTimer.current) clearTimeout(dirtyTimer.current);
+    dirtyTimer.current = setTimeout(() => {
+      markSaved();
+      dirtyTimer.current = null;
+    }, 900);
+    return () => { if (dirtyTimer.current) clearTimeout(dirtyTimer.current); };
+  }, [isDirty, markSaved]);
+
+  // Ctrl+S keyboard shortcut
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        handleSave();
+      }
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDirty]);
+
+  function handleSave() {
+    // Persist is already synchronous; just confirm via the indicator.
+    if (dirtyTimer.current) { clearTimeout(dirtyTimer.current); dirtyTimer.current = null; }
+    markSaved();
+    setSaveFlash(true);
+    setTimeout(() => setSaveFlash(false), 1500);
+  }
 
   async function handleExportHtml() {
     setExporting(true);
@@ -67,7 +102,22 @@ export default function Toolbar() {
         <span className="text-sm text-gray-300 truncate max-w-[180px]" title={presentation.meta.title}>
           {presentation.meta.title}
         </span>
-        {isDirty && <span className="text-xs text-yellow-400 ml-0.5">●</span>}
+
+        {/* Save status + manual save button */}
+        <span className={`text-[11px] transition-colors ${isDirty ? 'text-gray-500 animate-pulse' : saveFlash ? 'text-emerald-400' : 'text-emerald-500/60'}`}>
+          {isDirty ? '● saving…' : saveFlash ? '✓ Saved!' : '✓ saved'}
+        </span>
+        <button
+          onClick={handleSave}
+          title="Save now (Ctrl+S)"
+          className={`text-xs px-2 py-0.5 rounded border transition-colors ${
+            isDirty
+              ? 'bg-indigo-600/30 border-indigo-500/60 text-indigo-300 hover:bg-indigo-600/50'
+              : 'bg-white/5 border-white/10 text-gray-400 hover:bg-white/10 hover:text-gray-200'
+          }`}
+        >
+          Save
+        </button>
 
         <div className="flex-1" />
 

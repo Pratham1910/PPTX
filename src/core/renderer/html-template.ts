@@ -73,6 +73,11 @@ export interface HtmlTemplateOptions {
    * instead of CDN. Set by the editor preview to ensure offline operation.
    */
   vendorUrls?: VendorUrls;
+  /**
+   * When set, a <base href> tag is injected so that absolute paths like
+   * /vendor/... resolve correctly inside blob: URL iframes.
+   */
+  baseHref?: string;
 }
 
 /**
@@ -82,7 +87,7 @@ export function generateHtml(
   presentation: Presentation,
   options: HtmlTemplateOptions = {},
 ): string {
-  const { useCdn = true, embedAssets = false, editorMode = false, vendorUrls } = options;
+  const { useCdn = true, embedAssets = false, editorMode = false, vendorUrls, baseHref } = options;
 
   const sectionsHtml = renderAllSlides(presentation, embedAssets);
   const themeCss     = generateThemeCss(presentation.theme);
@@ -114,6 +119,7 @@ export function generateHtml(
 <html lang="${escapeHtml(presentation.meta.language ?? 'en')}">
 <head>
   <meta charset="UTF-8">
+  ${baseHref ? `<base href="${escapeHtml(baseHref)}">` : ''}
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${escapeHtml(presentation.meta.title)}</title>
   <meta name="author" content="${escapeHtml(presentation.meta.author ?? '')}">
@@ -281,14 +287,16 @@ function buildRevealConfig(cfg: RevealSettings, editorMode = false): string {
         );
       } catch (_) {}
     });
-    // Initial render on first slide
-    __pptRunMermaidAndAnimate();
-
     // Handle navigate commands from the editor parent
     window.addEventListener('message', function(e) {
       if (e.data && e.data.type === 'ppt-navigate') {
         Reveal.slide(e.data.indexh || 0, e.data.indexv || 0);
       }
+    });
+
+    // Initial render; when complete, signal the editor that this iframe is ready
+    __pptRunMermaidAndAnimate().then(function() {
+      try { window.parent.postMessage({ type: 'ppt-ready' }, '*'); } catch (_) {}
     });
   });`;
 }

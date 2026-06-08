@@ -125,7 +125,20 @@ function quoteLayout(elements: Element[], ctx: RenderContext): string {
 // ─── HELPERS ─────────────────────────────────────────────────
 
 function renderAll(elements: Element[], ctx: RenderContext): string {
-  return elements.map((el) => renderElement(el, ctx)).join('\n');
+  const flowEls = elements.filter((el) => el.position.mode !== 'absolute');
+  const absEls  = elements.filter((el) => el.position.mode === 'absolute');
+
+  const flowHtml = flowEls.map((el) => renderElement(el, ctx)).join('\n');
+
+  if (!absEls.length) return flowHtml;
+
+  // Absolute elements live in a zero-footprint overlay so they don't push
+  // flow content down.  pointer-events:none on the layer itself, auto on
+  // each child (set inside renderElement for absolute elements).
+  const absHtml = absEls.map((el) => renderElement(el, ctx)).join('\n');
+  const absLayer = `<div class="ppt-abs-layer" style="position:absolute;inset:0;pointer-events:none;">${absHtml}</div>`;
+
+  return flowHtml + '\n' + absLayer;
 }
 
 function columnGrid(

@@ -1,94 +1,109 @@
-import { useRef, useState, useCallback, useEffect } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import { useEditorStore } from '../../store/useEditorStore.ts';
 import { renderPresentation } from '@/core/renderer';
+import type { Presentation } from '@/core/schema';
 import { LOCAL_VENDOR_URLS } from '../../vendor-urls.ts';
 
 type RevealWin = Window & {
   Reveal?: { slide: (h: number, v?: number) => void };
 };
 
+// Build a blob URL from the rendered HTML.
+// The browser keeps the old page visible while the new blob URL loads,
+// eliminating the black-screen flash that srcDoc causes on every reload.
+// We pass baseHref = the app origin so that absolute paths like /vendor/...
+// resolve correctly inside the blob: URL context.
+function makeBlobUrl(presentation: Presentation): string {
+  const baseHref = typeof window !== 'undefined' ? window.location.origin + '/' : '/';
+  const html = renderPresentation(presentation, {
+    editorMode: true,
+    vendorUrls: LOCAL_VENDOR_URLS,
+    baseHref,
+  });
+  return URL.createObjectURL(new Blob([html], { type: 'text/html' }));
+}
+
 export default function PreviewFrame() {
   const { presentation, selectedSlideIndex, selectSlide } = useEditorStore();
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [scale, setScale] = useState<'fit' | '100%' | '75%'>('fit');
 
-  // True while we're programmatically driving Reveal — suppresses the echo
-  // postMessage that would bounce back and re-select the same slide.
+  // True while we're programmatically driving Reveal — suppresses echo
   const isProgrammatic = useRef(false);
 
-  // Debounce the iframe reload so that every keystroke doesn't tear down
-  // and rebuild Reveal+Mermaid — only re-render 500 ms after typing stops.
-  const [html, setHtml] = useState(() =>
-    renderPresentation(presentation, { editorMode: true, vendorUrls: LOCAL_VENDOR_URLS }),
-  );
+  // The slide to jump to once the iframe signals ppt-ready
+  const pendingSlide = useRef(selectedSlideIndex);
+  useEffect(() => { pendingSlide.current = selectedSlideIndex; }, [selectedSlideIndex]);
+
+  // Current blob URL loaded in the iframe.  We keep the previous URL alive for
+  // 5 s after swapping so the iframe finishes loading before we revoke it.
+  const [srcUrl, setSrcUrl] = useState<string>('');
+  const prevUrlRef = useRef<string>('');
+
+  // Create the initial blob URL once on mount
   useEffect(() => {
-    const t = setTimeout(
-      () => setHtml(renderPresentation(presentation, { editorMode: true, vendorUrls: LOCAL_VENDOR_URLS })),
-      500,
-    );
+    const url = makeBlobUrl(presentation);
+    prevUrlRef.current = url;
+    setSrcUrl(url);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Debounced update: 500 ms after the last edit, produce a new blob URL.
+  // The iframe navigates to it while still showing the old content → no flash.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const url = makeBlobUrl(presentation);
+      const old = prevUrlRef.current;
+      prevUrlRef.current = url;
+      setSrcUrl(url);
+      if (old) setTimeout(() => URL.revokeObjectURL(old), 5000);
+    }, 500);
     return () => clearTimeout(t);
   }, [presentation]);
 
-  // ── parent → iframe ───────────────────────────────────────────────────────
-  // Every time the selected slide changes (e.g. user clicks left panel),
-  // drive Reveal.js to the matching slide via postMessage so the iframe
-  // doesn't need to be on the same origin.
+  // Revoke blob URL on unmount
   useEffect(() => {
-    const iframe = iframeRef.current;
-    if (!iframe?.contentWindow) return;
-    isProgrammatic.current = true;
-    iframe.contentWindow.postMessage(
-      { type: 'ppt-navigate', indexh: selectedSlideIndex, indexv: 0 },
-      '*',
-    );
-    // Also try direct call in case postMessage listener isn't ready yet
-    const win = iframe.contentWindow as RevealWin;
-    win.Reveal?.slide(selectedSlideIndex, 0);
-    // Reset flag after Reveal's own slidechanged event has had time to fire
-    const t = setTimeout(() => { isProgrammatic.current = false; }, 150);
-    return () => clearTimeout(t);
-  }, [selectedSlideIndex]);
+    return () => { if (prevUrlRef.current) URL.revokeObjectURL(prevUrlRef.current); };
+  }, []);
 
-  // ── iframe → parent ───────────────────────────────────────────────────────
-  // When the user navigates inside the iframe (arrows / keyboard), Reveal posts
-  // a ppt-slidechanged message; we update the store so left panel and Properties
-  // panel follow along.
+  // ── iframe → parent ───────────────────────────────────────────
   useEffect(() => {
     function onMessage(e: MessageEvent) {
       if (e.source !== iframeRef.current?.contentWindow) return;
-      if (e.data?.type !== 'ppt-slidechanged') return;
-      if (isProgrammatic.current) return;        // ignore echo from our own nav
-      const idx: number = e.data.indexh ?? 0;
-      selectSlide(idx);
+
+      // Reveal fully initialised + mermaid rendered → jump to correct slide
+      if (e.data?.type === 'ppt-ready') {
+        isProgrammatic.current = true;
+        iframeRef.current?.contentWindow?.postMessage(
+          { type: 'ppt-navigate', indexh: pendingSlide.current, indexv: 0 }, '*',
+        );
+        setTimeout(() => { isProgrammatic.current = false; }, 200);
+        return;
+      }
+
+      // User navigated inside the iframe → sync left panel
+      if (e.data?.type === 'ppt-slidechanged') {
+        if (!isProgrammatic.current) selectSlide(e.data.indexh ?? 0);
+      }
     }
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
   }, [selectSlide]);
 
-  // ── on iframe load ────────────────────────────────────────────────────────
-  // When html changes (edits) the iframe reloads. Once Reveal is ready the
-  // message listener inside the iframe handles navigate commands, but Reveal
-  // may not be initialised when the very first postMessage fires. Fall back to
-  // direct Reveal.slide() call inside onLoad.
-  const handleLoad = useCallback(() => {
-    const win = iframeRef.current?.contentWindow as RevealWin | null;
+  // ── parent → iframe: slide panel click ───────────────────────
+  useEffect(() => {
+    const win = iframeRef.current?.contentWindow as RevealWin | undefined;
     if (!win) return;
     isProgrammatic.current = true;
-    // Small delay: Reveal.initialize() is async; wait for it to finish
-    const t = setTimeout(() => {
-      win.Reveal?.slide(selectedSlideIndex, 0);
-      win.postMessage(
-        { type: 'ppt-navigate', indexh: selectedSlideIndex, indexv: 0 },
-        '*',
-      );
-      setTimeout(() => { isProgrammatic.current = false; }, 150);
-    }, 400);
+    win.postMessage({ type: 'ppt-navigate', indexh: selectedSlideIndex, indexv: 0 }, '*');
+    win.Reveal?.slide(selectedSlideIndex, 0);
+    const t = setTimeout(() => { isProgrammatic.current = false; }, 150);
     return () => clearTimeout(t);
   }, [selectedSlideIndex]);
 
   return (
     <div className="flex flex-col h-full">
-      {/* Preview toolbar */}
+      {/* Toolbar */}
       <div className="flex items-center gap-2 px-3 h-8 bg-[#161b27] border-b border-white/10 flex-none">
         <span className="text-xs text-gray-400">
           Slide {selectedSlideIndex + 1} / {presentation.slides.length}
@@ -110,7 +125,7 @@ export default function PreviewFrame() {
         ))}
       </div>
 
-      {/* Iframe container */}
+      {/* Iframe */}
       <div className="flex-1 overflow-hidden flex items-center justify-center bg-[#090b10] p-4">
         <div
           className="relative bg-black shadow-2xl"
@@ -124,9 +139,8 @@ export default function PreviewFrame() {
         >
           <iframe
             ref={iframeRef}
-            srcDoc={html}
+            src={srcUrl || undefined}
             title="Slide Preview"
-            onLoad={handleLoad}
             className="w-full h-full border-0"
             sandbox="allow-scripts allow-same-origin"
           />
