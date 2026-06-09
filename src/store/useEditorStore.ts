@@ -10,6 +10,7 @@ import type {
   Theme,
 } from '@/core/schema';
 import { SHOWCASE_PRESENTATION } from '../data/showcase.ts';
+import type { GitLabConfig } from '../services/gitlab.ts';
 
 
 function newBlankSlide(order: number): Slide {
@@ -38,6 +39,7 @@ interface EditorState {
   isDirty: boolean;
   isPresentationMode: boolean;
   isEditMode: boolean;
+  gitlabConfig: GitLabConfig | null;
 }
 
 interface EditorActions {
@@ -64,6 +66,7 @@ interface EditorActions {
   enterPresentationMode: () => void;
   exitPresentationMode: () => void;
   markSaved: () => void;
+  setGitlabConfig: (config: GitLabConfig | null) => void;
 }
 
 const initialPresentation = SHOWCASE_PRESENTATION;
@@ -77,6 +80,7 @@ export const useEditorStore = create<EditorState & EditorActions>()(
   isDirty: false,
   isPresentationMode: false,
   isEditMode: false,
+  gitlabConfig: null,
 
   loadPresentation: (p) => set({ presentation: p, selectedSlideIndex: 0, selectedElementIndex: null, isDirty: false }),
 
@@ -232,6 +236,8 @@ export const useEditorStore = create<EditorState & EditorActions>()(
 
   markSaved: () => set({ isDirty: false }),
 
+  setGitlabConfig: (config) => set({ gitlabConfig: config }),
+
   reorderSlide: (from, to) =>
     set((state) => {
       const slides = [...state.presentation.slides];
@@ -252,6 +258,7 @@ export const useEditorStore = create<EditorState & EditorActions>()(
       partialize: (state) => ({
         presentation: state.presentation,
         selectedSlideIndex: state.selectedSlideIndex,
+        gitlabConfig: state.gitlabConfig,
       }),
     }
   )

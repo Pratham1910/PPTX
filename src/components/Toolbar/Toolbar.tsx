@@ -4,6 +4,7 @@ import { exportHtmlSingleFile, exportHtmlZip } from '../../utils/download.ts';
 import MarkdownImportModal from './MarkdownImportModal.tsx';
 import TemplatePickerModal from './TemplatePickerModal.tsx';
 import InsertMediaModal from './InsertMediaModal.tsx';
+import GitLabModal from '../GitLab/GitLabModal.tsx';
 
 const PRESENT_ICON = (
   <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
@@ -35,10 +36,11 @@ export default function Toolbar() {
     presentation, addSlide, deleteSlide,
     selectedSlideIndex, isDirty, markSaved,
     isEditMode, enterEditMode, exitEditMode,
-    enterPresentationMode,
+    enterPresentationMode, gitlabConfig,
   } = useEditorStore();
 
   const [importOpen, setImportOpen]     = useState(false);
+  const [gitlabOpen, setGitlabOpen]     = useState(false);
   const [templateOpen, setTemplateOpen] = useState(false);
   const [insertOpen, setInsertOpen]     = useState(false);
   const [exporting, setExporting]       = useState(false);
@@ -166,6 +168,22 @@ export default function Toolbar() {
           Import MD
         </button>
 
+        {/* ── GitLab ── */}
+        <button
+          onClick={() => setGitlabOpen(true)}
+          title={gitlabConfig ? `Connected: ${gitlabConfig.projectId}` : 'Connect to GitLab'}
+          className={`text-xs flex items-center gap-1.5 px-2.5 py-1 rounded font-medium transition-colors border ${
+            gitlabConfig
+              ? 'bg-orange-500/15 border-orange-500/40 text-orange-300 hover:bg-orange-500/25'
+              : 'btn-ghost border-transparent'
+          }`}
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M22.65 14.39L12 22.13 1.35 14.39a.84.84 0 0 1-.3-.94l1.22-3.78 2.44-7.51A.42.42 0 0 1 4.82 2a.43.43 0 0 1 .58 0 .42.42 0 0 1 .11.18l2.44 7.49h8.1l2.44-7.51A.42.42 0 0 1 18.6 2a.43.43 0 0 1 .58 0 .42.42 0 0 1 .11.18l2.44 7.51 1.22 3.78a.84.84 0 0 1-.3.92z"/>
+          </svg>
+          {gitlabConfig ? 'GitLab ●' : 'GitLab'}
+        </button>
+
         <div className="w-px h-5 bg-white/10" />
 
         {/* ── Slide management ── */}
@@ -213,6 +231,7 @@ export default function Toolbar() {
       {importOpen   && <MarkdownImportModal   onClose={() => setImportOpen(false)} />}
       {templateOpen && <TemplatePickerModal   onClose={() => setTemplateOpen(false)} />}
       {insertOpen   && <InsertMediaModal      onClose={() => setInsertOpen(false)} />}
+      {gitlabOpen   && <GitLabModal           onClose={() => setGitlabOpen(false)} />}
     </>
   );
 }
