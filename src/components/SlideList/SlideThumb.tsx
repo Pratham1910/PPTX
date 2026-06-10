@@ -60,10 +60,20 @@ export default function SlideThumb({ slide, index, isSelected, onClick }: Props)
         </div>
       </div>
 
-      {/* Title */}
-      <p className="text-[11px] font-medium text-gray-300 truncate leading-tight">
-        {slideLabel(slide, index)}
-      </p>
+      {/* Title + vertical badge */}
+      <div className="flex items-center gap-1.5">
+        <p className="text-[11px] font-medium text-gray-300 truncate leading-tight flex-1">
+          {slideLabel(slide, index)}
+        </p>
+        {slide.verticalSlides?.length ? (
+          <span
+            title={`${slide.verticalSlides.length} vertical sub-slide${slide.verticalSlides.length > 1 ? 's' : ''}`}
+            className="flex items-center gap-0.5 text-[9px] text-cyan-400 bg-cyan-500/10 border border-cyan-500/25 px-1 py-0.5 rounded flex-none"
+          >
+            ↓{slide.verticalSlides.length}
+          </span>
+        ) : null}
+      </div>
       <p className="text-[10px] text-gray-500 truncate leading-tight">
         {slideSubtitle(slide)}
       </p>

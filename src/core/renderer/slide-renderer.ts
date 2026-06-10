@@ -28,8 +28,21 @@ export function renderSlide(slide: Slide, ctx: RenderContext): string {
   const notes = slide.notes
     ? `\n<aside class="notes">${escapeHtml(slide.notes)}</aside>`
     : '';
+  const mainSection = `<section${sectionAttrs}>\n${inner}${notes}\n</section>`;
 
-  return `<section${sectionAttrs}>\n${inner}${notes}\n</section>`;
+  // Vertical sub-slides → nest inside a parent <section>
+  if (slide.verticalSlides?.length) {
+    const subSections = slide.verticalSlides
+      .map((sub) => {
+        const subAttrs = buildSectionAttrs(sub, ctx);
+        const subInner = applyLayout(sub.layout, sub.elements, sub.title, ctx);
+        return `<section${subAttrs}>\n${subInner}\n</section>`;
+      })
+      .join('\n');
+    return `<section>\n${mainSection}\n${subSections}\n</section>`;
+  }
+
+  return mainSection;
 }
 
 // ─── ALL SLIDES ───────────────────────────────────────────────

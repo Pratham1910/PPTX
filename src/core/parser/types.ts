@@ -69,6 +69,11 @@ export interface SlideRaw {
    * e.g. <!-- layout: two-column --> → { layout: "two-column" }
    */
   directives: DirectiveMap;
+  /**
+   * Additional body-node groups split by <!-- vertical --> markers.
+   * Each group becomes a vertical sub-slide in the Reveal.js output.
+   */
+  verticalBodyGroups?: Content[][];
 }
 
 // ─── DIRECTIVE MAP ───────────────────────────────────────────

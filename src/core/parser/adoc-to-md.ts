@@ -383,6 +383,10 @@ function convertLines(segments: Segment[]): string[] {
     }
     afterLevel1 = false;
 
+    // ── Page break / vertical slide break ────────────────────
+    // <<< = AsciiDoc page break → Reveal.js vertical slide
+    if (trimmed === '<<<') { out.push('<!-- vertical -->'); continue; }
+
     // ── Horizontal rule ──────────────────────────────────────
     if (trimmed === "'''") { out.push('---'); continue; }
 

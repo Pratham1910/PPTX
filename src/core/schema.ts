@@ -187,6 +187,14 @@ export interface Slide {
 
   /** If true, slide is excluded from linear flow but reachable via branching */
   hidden?: boolean;
+
+  /**
+   * Vertical sub-slides — navigated with the ↓ arrow in Reveal.js.
+   * The parent slide appears first; pressing ↓ shows each sub-slide in order.
+   * Generated automatically from <!-- vertical --> markers in Markdown
+   * or <<< page-breaks in AsciiDoc.
+   */
+  verticalSlides?: Slide[];
 }
 
 export type SlideLayout =

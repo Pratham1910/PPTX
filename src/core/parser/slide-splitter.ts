@@ -25,38 +25,58 @@ export function splitIntoSlides(
   let currentHeading: Heading | null = null;
   let currentBody: Content[] = [];
   let currentDirectives: DirectiveMap = {};
+  let currentVerticalGroups: Content[][] = [];
   let started = false;
 
   function flush() {
     if (!started) return;
+    // Commit the last body group
+    const allGroups = [...currentVerticalGroups, currentBody];
     slides.push({
       headingNode: currentHeading,
-      bodyNodes: currentBody,
+      bodyNodes: allGroups[0],
       directives: currentDirectives,
+      verticalBodyGroups: allGroups.length > 1 ? allGroups.slice(1) : undefined,
     });
   }
 
+  function startNewSlide(heading: Heading) {
+    flush();
+    currentHeading = heading;
+    currentBody = [];
+    currentDirectives = {};
+    currentVerticalGroups = [];
+    started = true;
+  }
+
   for (const node of root.children) {
-    // ── HTML comments → directives ───────────────────────────
+    // ── HTML comments ────────────────────────────────────────
     if (node.type === 'html') {
+      // Vertical break: <!-- vertical -->
+      if (/<!--\s*vertical\s*-->/i.test(node.value)) {
+        if (started) {
+          currentVerticalGroups.push(currentBody);
+          currentBody = [];
+        }
+        continue;
+      }
+
+      // Named directive: <!-- key: value -->
       const directive = parseDirective(node.value);
       if (directive) {
         currentDirectives[directive.key as keyof DirectiveMap] =
           directive.value as string;
-        continue; // directives are metadata, not body content
+        continue;
       }
-      // Non-directive HTML (e.g. <video>) goes into body
-      currentBody.push(node);
+
+      // Non-directive HTML (e.g. <video>) → body
+      if (started) currentBody.push(node);
       continue;
     }
 
     // ── Heading at a split depth → new slide ─────────────────
     if (node.type === 'heading' && splitAt.has(node.depth)) {
-      flush();
-      currentHeading = node;
-      currentBody = [];
-      currentDirectives = {};
-      started = true;
+      startNewSlide(node);
       continue;
     }
 
@@ -64,9 +84,8 @@ export function splitIntoSlides(
     if (started) {
       currentBody.push(node);
     }
-    // (content before the first heading is silently dropped)
   }
 
-  flush(); // flush the last slide
+  flush();
   return slides;
 }

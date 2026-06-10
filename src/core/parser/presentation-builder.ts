@@ -107,6 +107,22 @@ export function buildPresentation(
       ? parseInt(raw.directives['auto-advance'], 10)
       : undefined;
 
+    // ── Vertical sub-slides (from <!-- vertical --> breaks) ──
+    const verticalSlides: Slide[] | undefined = raw.verticalBodyGroups?.length
+      ? raw.verticalBodyGroups.map((group, vIdx) => {
+          const vElements = group.flatMap((node) => nodeToElements(node, ctx));
+          return {
+            id: `${titleText ? `slide-${slugify(titleText)}-${index}` : `slide-${index}`}-v${vIdx + 1}`,
+            order: vIdx + 1,
+            title: undefined,
+            layout: detectLayout(vElements, false, false),
+            background,
+            elements: vElements,
+            navigation: { type: 'auto' as const, allowBack: true },
+          };
+        })
+      : undefined;
+
     // ── Assemble slide ──
     const slide: Slide = {
       id: titleText ? `slide-${slugify(titleText)}-${index}` : `slide-${index}`,
@@ -119,6 +135,7 @@ export function buildPresentation(
       navigation: { type: 'auto', allowBack: index > 0 },
       tags,
       autoAdvanceMs,
+      ...(verticalSlides ? { verticalSlides } : {}),
     };
 
     if (transitionOverride) {
