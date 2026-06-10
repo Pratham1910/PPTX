@@ -18,6 +18,10 @@ export interface GitLabFile {
   name: string;
   path: string;
   type: 'blob' | 'tree';
+  /** Derived from the file name — 'md' | 'adoc' */
+  ext: 'md' | 'adoc';
+  /** Immediate parent folder name relative to WorkDir/ (empty string = root) */
+  folder: string;
 }
 
 // ─── helpers ──────────────────────────────────────────────────
@@ -85,16 +89,27 @@ export async function listMdFiles(config: GitLabConfig): Promise<GitLabFile[]> {
   );
   if (!res.ok) throw new Error(`Could not list files: ${res.status}`);
 
-  const all: GitLabFile[] = await res.json();
-  const mdFiles = all.filter(
-    (f) => f.type === 'blob' && /\.md$/i.test(f.name)
-  );
+  const all: Array<Omit<GitLabFile, 'ext' | 'folder'>> = await res.json();
+  const contentFiles = all
+    .filter((f) => f.type === 'blob' && /\.(md|adoc)$/i.test(f.name))
+    .map((f) => {
+      const ext: 'md' | 'adoc' = /\.adoc$/i.test(f.name) ? 'adoc' : 'md';
+      // folder = immediate subdirectory inside WorkDir/, or '' for root/non-WorkDir
+      let folder = '';
+      if (f.path.startsWith('WorkDir/')) {
+        const rel = f.path.slice('WorkDir/'.length); // e.g. "Chapter 1/file.adoc"
+        const slash = rel.indexOf('/');
+        folder = slash >= 0 ? rel.slice(0, slash) : '';
+      }
+      return { ...f, ext, folder } as GitLabFile;
+    });
 
-  // Sort: WorkDir/ files first, then alphabetically
-  return mdFiles.sort((a, b) => {
+  // Sort: WorkDir/ files first, then by folder name, then alphabetically
+  return contentFiles.sort((a, b) => {
     const aWork = a.path.startsWith('WorkDir/') ? 0 : 1;
     const bWork = b.path.startsWith('WorkDir/') ? 0 : 1;
     if (aWork !== bWork) return aWork - bWork;
+    if (a.folder !== b.folder) return a.folder.localeCompare(b.folder);
     return a.path.localeCompare(b.path);
   });
 }

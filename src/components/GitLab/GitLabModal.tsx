@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useEditorStore } from '../../store/useEditorStore.ts';
 import {
   testConnection,
@@ -19,8 +19,61 @@ const GITLAB_ICON = (
   </svg>
 );
 
+const FOLDER_ICON = (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" className="text-yellow-400">
+    <path d="M1.5 2A1.5 1.5 0 000 3.5v9A1.5 1.5 0 001.5 14h13a1.5 1.5 0 001.5-1.5v-7A1.5 1.5 0 0014.5 4H7.621a1.5 1.5 0 01-1.06-.44L5.5 2.44A1.5 1.5 0 004.439 2H1.5z"/>
+  </svg>
+);
+
+const FILE_MD_ICON = (
+  <svg width="14" height="14" fill="none" viewBox="0 0 16 16" stroke="currentColor" strokeWidth={1.5}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M3 2.5A1.5 1.5 0 014.5 1h5.086a1.5 1.5 0 011.06.44l2.915 2.914A1.5 1.5 0 0114 5.414V13.5A1.5 1.5 0 0112.5 15h-8A1.5 1.5 0 013 13.5v-11z"/>
+  </svg>
+);
+
+// ── folder grouping ─────────────────────────────────────────────
+
+interface FolderGroup {
+  /** Display name — the folder name or '' for root / non-WorkDir */
+  name: string;
+  isWorkDir: boolean;
+  files: GitLabFile[];
+}
+
+function groupByFolder(files: GitLabFile[]): FolderGroup[] {
+  const workDirMap = new Map<string, GitLabFile[]>();
+  const others: GitLabFile[] = [];
+
+  for (const f of files) {
+    if (f.path.startsWith('WorkDir/')) {
+      const key = f.folder || '(root)';
+      if (!workDirMap.has(key)) workDirMap.set(key, []);
+      workDirMap.get(key)!.push(f);
+    } else {
+      others.push(f);
+    }
+  }
+
+  const groups: FolderGroup[] = [];
+
+  // WorkDir groups — sorted by folder name
+  const sortedKeys = [...workDirMap.keys()].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  for (const key of sortedKeys) {
+    groups.push({ name: key, isWorkDir: true, files: workDirMap.get(key)! });
+  }
+
+  // Non-WorkDir files
+  if (others.length > 0) {
+    groups.push({ name: 'Other files', isWorkDir: false, files: others });
+  }
+
+  return groups;
+}
+
+// ───────────────────────────────────────────────────────────────
+
 export default function GitLabModal({ onClose }: Props) {
-  const { gitlabConfig, setGitlabConfig, parseFromMarkdown } = useEditorStore();
+  const { gitlabConfig, setGitlabConfig, parseFromMarkdown, parseFromAdoc } = useEditorStore();
 
   // ── form state ─────────────────────────────────────────────
   const [form, setForm] = useState<GitLabConfig>(
@@ -38,7 +91,12 @@ export default function GitLabModal({ onClose }: Props) {
   const [selected, setSelected] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
 
-  // Auto-load files when modal opens in "browse" mode (already connected)
+  // ── expanded folders (all expanded by default) ────────────
+  const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
+
+  const groups = useMemo(() => groupByFolder(files), [files]);
+
+  // Auto-load files when modal opens already connected
   useEffect(() => {
     if (step === 'browse' && gitlabConfig) {
       loadFiles(gitlabConfig);
@@ -52,11 +110,11 @@ export default function GitLabModal({ onClose }: Props) {
     setLoading(true);
     setError('');
     try {
-      const mdFiles = await listMdFiles(cfg);
-      setFiles(mdFiles);
-      // Pre-select first WorkDir file if any
-      const workDirFile = mdFiles.find((f) => f.path.startsWith('WorkDir/'));
-      setSelected(workDirFile?.path ?? mdFiles[0]?.path ?? null);
+      const contentFiles = await listMdFiles(cfg);
+      setFiles(contentFiles);
+      // Pre-select first WorkDir file
+      const workDirFile = contentFiles.find((f) => f.path.startsWith('WorkDir/'));
+      setSelected(workDirFile?.path ?? contentFiles[0]?.path ?? null);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -89,7 +147,12 @@ export default function GitLabModal({ onClose }: Props) {
     setError('');
     try {
       const content = await fetchFileContent(gitlabConfig, selected);
-      parseFromMarkdown(content);
+      const file = files.find((f) => f.path === selected);
+      if (file?.ext === 'adoc') {
+        parseFromAdoc(content);
+      } else {
+        parseFromMarkdown(content);
+      }
       onClose();
     } catch (e) {
       setError((e as Error).message);
@@ -106,6 +169,15 @@ export default function GitLabModal({ onClose }: Props) {
     setError('');
   }
 
+  function toggleFolder(name: string) {
+    setCollapsedFolders((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  }
+
   // ── render ────────────────────────────────────────────────
 
   return (
@@ -113,7 +185,7 @@ export default function GitLabModal({ onClose }: Props) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="bg-[#161b27] border border-white/10 rounded-xl shadow-2xl w-[500px] max-h-[90vh] flex flex-col overflow-hidden">
+      <div className="bg-[#161b27] border border-white/10 rounded-xl shadow-2xl w-[520px] max-h-[90vh] flex flex-col overflow-hidden">
 
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
@@ -129,8 +201,11 @@ export default function GitLabModal({ onClose }: Props) {
           <>
             <div className="p-5 flex flex-col gap-4 overflow-y-auto">
               <p className="text-xs text-gray-400 leading-relaxed">
-                Connect to a GitLab repository. The app will fetch <code className="text-indigo-400 bg-indigo-500/10 px-1 rounded">.md</code> files
-                from the repo (prioritising <code className="text-indigo-400 bg-indigo-500/10 px-1 rounded">WorkDir/</code>) and import them as presentations.
+                Connect to a GitLab repository. The app will fetch
+                {' '}<code className="text-indigo-400 bg-indigo-500/10 px-1 rounded">.md</code> and
+                {' '}<code className="text-orange-400 bg-orange-500/10 px-1 rounded">.adoc</code> files
+                from <code className="text-indigo-400 bg-indigo-500/10 px-1 rounded">WorkDir/</code>,
+                grouped by folder (Chapter 1, Chapter 2, …).
               </p>
 
               {/* GitLab URL */}
@@ -219,10 +294,7 @@ export default function GitLabModal({ onClose }: Props) {
                     Connecting…
                   </>
                 ) : (
-                  <>
-                    {GITLAB_ICON}
-                    Connect
-                  </>
+                  <>{GITLAB_ICON} Connect</>
                 )}
               </button>
             </div>
@@ -246,10 +318,14 @@ export default function GitLabModal({ onClose }: Props) {
               </button>
             </div>
 
-            <div className="p-5 flex flex-col gap-3 overflow-y-auto flex-1">
+            <div className="p-4 flex flex-col gap-3 overflow-y-auto flex-1">
+
+              {/* Top bar */}
               <div className="flex items-center justify-between">
                 <span className="text-xs text-gray-400">
-                  {loading ? 'Loading files…' : `${files.length} Markdown file${files.length !== 1 ? 's' : ''} found`}
+                  {loading
+                    ? 'Loading files…'
+                    : `${files.length} file${files.length !== 1 ? 's' : ''} found`}
                 </span>
                 <button
                   className="text-[11px] text-indigo-400 hover:text-indigo-300 transition-colors"
@@ -260,61 +336,96 @@ export default function GitLabModal({ onClose }: Props) {
                 </button>
               </div>
 
-              {/* File list */}
-              {loading ? (
+              {/* Loading */}
+              {loading && (
                 <div className="flex items-center justify-center py-10 gap-3 text-gray-500 text-sm">
                   <span className="w-4 h-4 border-2 border-white/20 border-t-indigo-400 rounded-full animate-spin" />
                   Fetching repository…
                 </div>
-              ) : files.length === 0 ? (
+              )}
+
+              {/* Empty */}
+              {!loading && files.length === 0 && (
                 <div className="text-center py-10 text-sm text-gray-500">
-                  No <code>.md</code> files found in this branch.
+                  No <code>.md</code> or <code>.adoc</code> files found in this branch.
                 </div>
-              ) : (
-                <div className="flex flex-col gap-1">
-                  {/* WorkDir group header */}
-                  {files.some((f) => f.path.startsWith('WorkDir/')) && (
-                    <p className="text-[10px] text-gray-600 uppercase tracking-wider mt-1 mb-0.5 px-1">WorkDir</p>
-                  )}
-                  {files.map((file) => {
-                    const isWorkDir = file.path.startsWith('WorkDir/');
-                    const isSelected = selected === file.path;
-                    const showGroupDivider =
-                      !isWorkDir && files.findIndex((f) => !f.path.startsWith('WorkDir/')) === files.indexOf(file);
+              )}
+
+              {/* Folder-grouped file list */}
+              {!loading && groups.length > 0 && (
+                <div className="flex flex-col gap-2">
+                  {groups.map((group) => {
+                    const collapsed = collapsedFolders.has(group.name);
                     return (
-                      <div key={file.path}>
-                        {showGroupDivider && files.some((f) => f.path.startsWith('WorkDir/')) && (
-                          <p className="text-[10px] text-gray-600 uppercase tracking-wider mt-3 mb-0.5 px-1">Other files</p>
-                        )}
+                      <div key={group.name}>
+                        {/* Folder header */}
                         <button
-                          className={[
-                            'w-full text-left px-3 py-2.5 rounded-lg border transition-colors flex items-center gap-3',
-                            isSelected
-                              ? 'bg-indigo-600/20 border-indigo-500/50 text-indigo-200'
-                              : 'bg-white/3 border-white/8 text-gray-300 hover:bg-white/8 hover:border-white/15',
-                          ].join(' ')}
-                          onClick={() => setSelected(file.path)}
-                          onDoubleClick={handleImport}
+                          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-white/5 transition-colors group"
+                          onClick={() => toggleFolder(group.name)}
                         >
-                          {/* File icon */}
-                          <svg className={`w-4 h-4 flex-none ${isSelected ? 'text-indigo-400' : 'text-gray-500'}`} fill="none" viewBox="0 0 16 16" stroke="currentColor" strokeWidth={1.5}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M3 2.5A1.5 1.5 0 014.5 1h5.086a1.5 1.5 0 011.06.44l2.915 2.914A1.5 1.5 0 0114 5.414V13.5A1.5 1.5 0 0112.5 15h-8A1.5 1.5 0 013 13.5v-11z"/>
-                          </svg>
-                          <div className="flex-1 min-w-0">
-                            <div className="text-xs font-medium truncate">{file.name}</div>
-                            <div className="text-[10px] text-gray-500 truncate">{file.path}</div>
-                          </div>
-                          {isWorkDir && (
-                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-orange-500/15 text-orange-400 border border-orange-500/20 flex-none">
-                              WorkDir
-                            </span>
-                          )}
-                          {isSelected && (
-                            <svg className="w-3.5 h-3.5 text-indigo-400 flex-none" viewBox="0 0 16 16" fill="currentColor">
-                              <path d="M6.5 11.5l-3-3 1.06-1.06L6.5 9.38l5.44-5.44L13 5l-6.5 6.5z"/>
-                            </svg>
-                          )}
+                          <span className={`text-[10px] transition-transform ${collapsed ? '' : 'rotate-90'}`}>▶</span>
+                          {group.isWorkDir
+                            ? <span className="flex-none">{FOLDER_ICON}</span>
+                            : <span className="w-3.5 h-3.5 text-gray-500 flex-none">
+                                <svg viewBox="0 0 16 16" fill="currentColor">
+                                  <path d="M1.5 2A1.5 1.5 0 000 3.5v9A1.5 1.5 0 001.5 14h13a1.5 1.5 0 001.5-1.5v-7A1.5 1.5 0 0014.5 4H7.621a1.5 1.5 0 01-1.06-.44L5.5 2.44A1.5 1.5 0 004.439 2H1.5z"/>
+                                </svg>
+                              </span>
+                          }
+                          <span className={`text-xs font-semibold truncate ${group.isWorkDir ? 'text-yellow-300' : 'text-gray-400'}`}>
+                            {group.name}
+                          </span>
+                          <span className="ml-auto text-[10px] text-gray-600 group-hover:text-gray-500">
+                            {group.files.length} file{group.files.length !== 1 ? 's' : ''}
+                          </span>
                         </button>
+
+                        {/* Files inside folder */}
+                        {!collapsed && (
+                          <div className="flex flex-col gap-0.5 ml-5 mt-0.5">
+                            {group.files.map((file) => {
+                              const isSelected = selected === file.path;
+                              return (
+                                <button
+                                  key={file.path}
+                                  className={[
+                                    'w-full text-left px-3 py-2 rounded-lg border transition-colors flex items-center gap-2.5',
+                                    isSelected
+                                      ? 'bg-indigo-600/20 border-indigo-500/50 text-indigo-200'
+                                      : 'bg-white/3 border-white/8 text-gray-300 hover:bg-white/8 hover:border-white/15',
+                                  ].join(' ')}
+                                  onClick={() => setSelected(file.path)}
+                                  onDoubleClick={handleImport}
+                                >
+                                  {/* File type icon */}
+                                  <span className={isSelected ? 'text-indigo-400' : 'text-gray-500'}>
+                                    {FILE_MD_ICON}
+                                  </span>
+
+                                  <div className="flex-1 min-w-0">
+                                    <div className="text-xs font-medium truncate">{file.name}</div>
+                                    <div className="text-[10px] text-gray-500 truncate">{file.path}</div>
+                                  </div>
+
+                                  {/* Extension badge */}
+                                  <span className={`text-[9px] px-1.5 py-0.5 rounded border flex-none font-mono ${
+                                    file.ext === 'adoc'
+                                      ? 'bg-orange-500/15 text-orange-400 border-orange-500/20'
+                                      : 'bg-indigo-500/15 text-indigo-400 border-indigo-500/20'
+                                  }`}>
+                                    .{file.ext}
+                                  </span>
+
+                                  {isSelected && (
+                                    <svg className="w-3.5 h-3.5 text-indigo-400 flex-none" viewBox="0 0 16 16" fill="currentColor">
+                                      <path d="M6.5 11.5l-3-3 1.06-1.06L6.5 9.38l5.44-5.44L13 5l-6.5 6.5z"/>
+                                    </svg>
+                                  )}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -329,10 +440,10 @@ export default function GitLabModal({ onClose }: Props) {
             </div>
 
             <div className="px-5 py-4 border-t border-white/10 flex items-center justify-between">
-              <p className="text-[11px] text-gray-500">
-                {selected ? (
-                  <>Selected: <span className="text-gray-300">{selected}</span></>
-                ) : 'No file selected'}
+              <p className="text-[11px] text-gray-500 truncate max-w-[55%]">
+                {selected
+                  ? <>Selected: <span className="text-gray-300">{selected}</span></>
+                  : 'No file selected'}
               </p>
               <div className="flex gap-2">
                 <button className="btn-ghost text-sm" onClick={onClose}>Cancel</button>

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { markdownToPresentation } from '@/core/parser';
+import { markdownToPresentation, adocToMarkdown } from '@/core/parser';
 import type {
   Presentation,
   Slide,
@@ -45,6 +45,7 @@ interface EditorState {
 interface EditorActions {
   loadPresentation: (p: Presentation) => void;
   parseFromMarkdown: (md: string) => void;
+  parseFromAdoc: (adoc: string) => void;
   selectSlide: (index: number) => void;
   selectElement: (index: number | null) => void;
   enterEditMode: () => void;
@@ -90,6 +91,16 @@ export const useEditorStore = create<EditorState & EditorActions>()(
       set({ presentation: p, selectedSlideIndex: 0, selectedElementIndex: null, isDirty: false });
     } catch {
       // Invalid Markdown — ignore silently
+    }
+  },
+
+  parseFromAdoc: (adoc) => {
+    try {
+      const md = adocToMarkdown(adoc);
+      const p = markdownToPresentation(md);
+      set({ presentation: p, selectedSlideIndex: 0, selectedElementIndex: null, isDirty: false });
+    } catch {
+      // Invalid AsciiDoc — ignore silently
     }
   },
 
