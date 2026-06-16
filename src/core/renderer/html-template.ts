@@ -91,7 +91,10 @@ export function generateHtml(
 
   const sectionsHtml = renderAllSlides(presentation, embedAssets);
   const themeCss     = generateThemeCss(presentation.theme);
-  const revealConfig = buildRevealConfig(presentation.settings.revealjs, editorMode);
+  const [aw, ah]     = presentation.theme.aspectRatio.split(':').map(Number);
+  const slideW       = 1920;
+  const slideH       = Math.round((slideW / aw) * ah);
+  const revealConfig = buildRevealConfig(presentation.settings.revealjs, editorMode, slideW, slideH);
   // Skip Google Fonts when local vendor URLs are provided — fonts are already
   // bundled into the editor app and the preview inherits the parent page's CSS.
   const fonts        = vendorUrls ? '' : buildGoogleFontLink(presentation.theme);
@@ -176,8 +179,14 @@ ${quizRuntime(presentation)}
 
 // ─── REVEAL.JS CONFIG ────────────────────────────────────────
 
-function buildRevealConfig(cfg: RevealSettings, editorMode = false): string {
+function buildRevealConfig(cfg: RevealSettings, editorMode = false, slideW = 1920, slideH = 1080): string {
   const config = {
+    width:          slideW,
+    height:         slideH,
+    margin:         0.04,
+    minScale:       0.1,
+    maxScale:       2.0,
+    center:         false,
     // Disable hash routing in editor preview — srcdoc iframes can't call
     // history.replaceState() with an http:// URL (SecurityError).
     hash:              editorMode ? false : cfg.history,

@@ -5,6 +5,7 @@ import type {
   ImageElement, VideoElement, CodeElement,
   CalloutElement, TableElement, DiagramElement,
   QuizElement, ButtonElement, DividerElement,
+  EmbedElement, WhiteboardElement,
 } from '@/core/schema';
 
 interface Props {
@@ -208,6 +209,70 @@ export default function CanvasElementContent({ element, theme, assets, editing, 
       const el = element as DividerElement;
       return (
         <hr style={{ border: 'none', borderTop: `1px ${el.lineStyle ?? 'solid'} ${theme.colors.muted}`, margin: 0, width: '100%' }} />
+      );
+    }
+
+    case 'embed': {
+      const el = element as EmbedElement;
+      // HTML file embed — live iframe with srcdoc
+      if (el.embedType === 'html' && el.htmlContent) {
+        return (
+          <iframe
+            srcDoc={el.htmlContent}
+            sandbox="allow-scripts allow-same-origin allow-pointer-lock allow-popups"
+            style={{ width: '100%', height: '100%', border: 'none', display: 'block', minHeight: 200, borderRadius: 4 }}
+            title="HTML Embed"
+          />
+        );
+      }
+      // URL iframe
+      if ((el.embedType === 'iframe' || el.embedType === 'pdf') && el.url) {
+        return (
+          <iframe
+            src={el.url}
+            style={{ width: '100%', height: '100%', border: 'none', display: 'block', minHeight: 200, borderRadius: 4 }}
+            title="Embed"
+            allowFullScreen
+          />
+        );
+      }
+      return (
+        <div style={{ width: '100%', height: '100%', minHeight: 120, background: 'rgba(255,255,255,0.04)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 6, color: theme.colors.muted, fontSize: 13, border: '1px dashed rgba(255,255,255,0.12)' }}>
+          <span style={{ fontSize: 22 }}>⬡</span> HTML Embed
+        </div>
+      );
+    }
+
+    case 'whiteboard': {
+      const el = element as WhiteboardElement;
+      if (el.svgDataUrl) {
+        return (
+          <img
+            src={el.svgDataUrl}
+            alt="Whiteboard"
+            draggable={false}
+            style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block', pointerEvents: 'none' }}
+          />
+        );
+      }
+      // Empty whiteboard placeholder — shows until user draws something
+      return (
+        <div style={{
+          width: '100%', height: '100%', minHeight: 160,
+          display: 'flex', flexDirection: 'column',
+          alignItems: 'center', justifyContent: 'center', gap: 10,
+          border: '2px dashed rgba(99,102,241,0.3)',
+          borderRadius: 8, color: 'rgba(165,180,252,0.5)',
+          background: 'rgba(99,102,241,0.04)',
+          userSelect: 'none', pointerEvents: 'none',
+        }}>
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <rect x="3" y="3" width="18" height="18" rx="2"/>
+            <path d="M8 12h8M12 8v8" strokeLinecap="round"/>
+          </svg>
+          <span style={{ fontSize: 13, fontWeight: 500 }}>Whiteboard</span>
+          <span style={{ fontSize: 11, opacity: 0.6 }}>Double-click or click "Edit Whiteboard" to draw</span>
+        </div>
       );
     }
 

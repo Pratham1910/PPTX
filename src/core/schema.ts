@@ -379,7 +379,8 @@ export type ElementType =
   | "divider"
   | "icon"
   | "callout"
-  | "timeline";
+  | "timeline"
+  | "whiteboard";   // tldraw interactive canvas
 
 export interface ElementBase {
   id: string;
@@ -783,6 +784,14 @@ export interface IconElement extends ElementBase {
   label?: string;
 }
 
+export interface WhiteboardElement extends ElementBase {
+  type: "whiteboard";
+  /** tldraw store snapshot — serialized for persistence across sessions */
+  snapshot?: Record<string, unknown>;
+  /** SVG data URL — captured when the whiteboard is saved; used in HTML export */
+  svgDataUrl?: string;
+}
+
 /** Union of all element types — used for `Slide.elements` */
 export type Element =
   | TextElement
@@ -803,7 +812,8 @@ export type Element =
   | CalloutElement
   | TimelineElement
   | DividerElement
-  | IconElement;
+  | IconElement
+  | WhiteboardElement;
 
 // ─────────────────────────────────────────────────────────────
 // ANIMATION

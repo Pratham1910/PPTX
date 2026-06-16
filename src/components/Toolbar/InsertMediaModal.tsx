@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useEditorStore } from '../../store/useEditorStore.ts';
-import type { ImageElement, VideoElement, EmbedElement, DiagramElement, Asset } from '@/core/schema';
+import type { ImageElement, VideoElement, EmbedElement, DiagramElement, WhiteboardElement, Asset } from '@/core/schema';
 import FilePickerField from '../shared/FilePickerField.tsx';
 
-type Tab = 'image' | 'video' | 'svg' | 'diagram';
+type Tab = 'image' | 'video' | 'svg' | 'diagram' | 'html' | 'whiteboard';
 
 interface Props {
   onClose: () => void;
@@ -64,11 +64,19 @@ export default function InsertMediaModal({ onClose }: Props) {
   const [diagTheme, setDiagTheme] = useState<DiagramElement['theme']>('dark');
   const [diagAnimated, setDiagAnimated] = useState(false);
 
+  // HTML embed state
+  const [htmlContent, setHtmlContent] = useState('');
+  const [htmlFileName, setHtmlFileName] = useState('');
+  const [htmlLoading, setHtmlLoading] = useState(false);
+  const htmlInputRef = useRef<HTMLInputElement>(null);
+
   const tabs: Array<{ id: Tab; label: string; icon: string }> = [
-    { id: 'image',   label: 'Image',     icon: '🖼️' },
-    { id: 'video',   label: 'Video',     icon: '▶️' },
-    { id: 'svg',     label: 'SVG/Embed', icon: '⬡' },
-    { id: 'diagram', label: 'Diagram',   icon: '⬡' },
+    { id: 'image',      label: 'Image',      icon: '🖼️' },
+    { id: 'video',      label: 'Video',      icon: '▶️' },
+    { id: 'svg',        label: 'SVG/Embed',  icon: '⬡' },
+    { id: 'diagram',    label: 'Diagram',    icon: '⬡' },
+    { id: 'html',       label: 'HTML/3D',    icon: '⬡' },
+    { id: 'whiteboard', label: 'Whiteboard', icon: '✏️' },
   ];
 
   function reset() {
@@ -77,6 +85,58 @@ export default function InsertMediaModal({ onClose }: Props) {
     setAlt('');
     setCaption('');
     setError('');
+    setHtmlContent('');
+    setHtmlFileName('');
+  }
+
+  function handleHtmlFilePick(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setHtmlLoading(true);
+    const reader = new FileReader();
+    reader.onload = () => {
+      setHtmlContent(reader.result as string);
+      setHtmlFileName(file.name);
+      setError('');
+      setHtmlLoading(false);
+    };
+    reader.onerror = () => { setError('Could not read the file.'); setHtmlLoading(false); };
+    reader.readAsText(file);
+    e.target.value = '';
+  }
+
+  function handleInsertWhiteboard() {
+    const el: WhiteboardElement = {
+      id: uuid(), type: 'whiteboard',
+      position: { mode: 'absolute', x: 5, y: 5, width: 90, height: 90, zIndex: 1 },
+    };
+    addElement(selectedSlideIndex, el);
+    onClose();
+  }
+
+  function handleInsertHtml() {
+    if (!htmlContent.trim() && !url.trim()) {
+      setError('Pick an HTML file or enter a URL.');
+      return;
+    }
+    if (url.trim() && !htmlContent) {
+      // External URL → plain iframe
+      const el: EmbedElement = {
+        id: uuid(), type: 'embed', embedType: 'iframe',
+        url: url.trim(), allowInteraction: true,
+        position: { mode: 'absolute', x: 0, y: 0, width: 100, height: 100, zIndex: 1 },
+      };
+      addElement(selectedSlideIndex, el);
+    } else {
+      // Local HTML file → srcdoc iframe
+      const el: EmbedElement = {
+        id: uuid(), type: 'embed', embedType: 'html',
+        htmlContent, allowInteraction: true,
+        position: { mode: 'absolute', x: 0, y: 0, width: 100, height: 100, zIndex: 1 },
+      };
+      addElement(selectedSlideIndex, el);
+    }
+    onClose();
   }
 
   function handleSourceChange(val: string, fileName?: string) {
@@ -98,7 +158,9 @@ export default function InsertMediaModal({ onClose }: Props) {
   }
 
   function handleInsert() {
-    if (tab === 'diagram') { handleInsertDiagram(); return; }
+    if (tab === 'diagram')    { handleInsertDiagram();    return; }
+    if (tab === 'html')       { handleInsertHtml();       return; }
+    if (tab === 'whiteboard') { handleInsertWhiteboard(); return; }
     const trimmed = url.trim();
     if (!trimmed) { setError('Please enter a URL or pick a file.'); return; }
 
@@ -198,11 +260,11 @@ export default function InsertMediaModal({ onClose }: Props) {
         </div>
 
         {/* Tabs */}
-        <div className="flex border-b border-white/10">
+        <div className="flex border-b border-white/10 overflow-x-auto">
           {tabs.map((t) => (
             <button
               key={t.id}
-              className={`flex-1 py-2.5 text-xs font-medium transition-colors ${
+              className={`flex-none px-3 py-2.5 text-xs font-medium whitespace-nowrap transition-colors ${
                 tab === t.id
                   ? 'text-indigo-400 border-b-2 border-indigo-500 bg-indigo-500/5'
                   : 'text-gray-400 hover:text-gray-200'
@@ -283,8 +345,104 @@ export default function InsertMediaModal({ onClose }: Props) {
             </>
           )}
 
+          {/* ── HTML / 3D tab ── */}
+          {tab === 'html' && (
+            <>
+              <p className="text-xs text-gray-400 leading-relaxed">
+                Embed a self-contained <span className="text-emerald-400 font-mono">.html</span> file (Three.js,
+                Babylon.js, WebGL, Spline, etc.) or paste an external URL.
+                The file runs in a full-slide sandboxed iframe — scripts and WebGL are enabled.
+              </p>
+
+              {/* File picker */}
+              <div className="flex flex-col gap-1.5">
+                <span className="field-label">HTML File</span>
+                {htmlFileName ? (
+                  <div className="flex items-center gap-2 px-2.5 py-1.5 rounded bg-emerald-500/10 border border-emerald-500/25 text-xs">
+                    <span className="text-emerald-400 flex-none">📄</span>
+                    <span className="flex-1 truncate text-gray-300">{htmlFileName}</span>
+                    <button
+                      onClick={() => { setHtmlContent(''); setHtmlFileName(''); }}
+                      className="flex-none text-gray-500 hover:text-red-400 transition-colors px-1"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={htmlLoading}
+                    onClick={() => htmlInputRef.current?.click()}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs bg-white/5 hover:bg-indigo-600/20 border border-white/10 hover:border-indigo-500/40 text-gray-400 hover:text-gray-200 transition-colors"
+                  >
+                    {htmlLoading ? <span className="animate-spin text-[10px]">⟳</span> : <span>📁</span>}
+                    {htmlLoading ? 'Reading file…' : 'Browse .html file'}
+                  </button>
+                )}
+                <input
+                  ref={htmlInputRef}
+                  type="file"
+                  accept=".html,.htm"
+                  className="hidden"
+                  onChange={handleHtmlFilePick}
+                />
+              </div>
+
+              <div className="flex items-center gap-2 text-xs text-gray-500">
+                <div className="flex-1 h-px bg-white/10" />
+                <span>or paste external URL</span>
+                <div className="flex-1 h-px bg-white/10" />
+              </div>
+
+              <label className="flex flex-col gap-1">
+                <span className="field-label">External URL (iframe)</span>
+                <input
+                  type="url"
+                  className="field-input font-mono text-xs"
+                  placeholder="https://my-3d-model.example.com"
+                  value={url}
+                  onChange={(e) => setUrl(e.target.value)}
+                  disabled={!!htmlContent}
+                />
+                {htmlContent && (
+                  <span className="text-[10px] text-gray-600">Clear the file above to use a URL instead.</span>
+                )}
+              </label>
+
+              <p className="text-[10px] text-gray-500 leading-snug">
+                The embed is placed as a full-slide layer. Use the canvas resize handles to reposition or resize it after inserting.
+              </p>
+
+              {error && <p className="text-xs text-red-400">{error}</p>}
+            </>
+          )}
+
+          {/* ── Whiteboard tab ── */}
+          {tab === 'whiteboard' && (
+            <>
+              <div className="flex flex-col items-center gap-4 py-4">
+                <div style={{ width: 64, height: 64, borderRadius: 12, background: 'rgba(99,102,241,0.1)', border: '1.5px solid rgba(99,102,241,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#a5b4fc" strokeWidth="1.5">
+                    <rect x="3" y="3" width="18" height="18" rx="2"/>
+                    <path d="M8 12h8M12 8v8" strokeLinecap="round"/>
+                  </svg>
+                </div>
+                <div className="text-center">
+                  <p className="text-sm font-medium text-gray-200">Interactive Whiteboard</p>
+                  <p className="text-xs text-gray-500 mt-1 leading-relaxed max-w-xs">
+                    Adds a tldraw whiteboard element to your slide. Double-click the element
+                    on the canvas to open the drawing editor.
+                  </p>
+                </div>
+                <div className="text-[10px] text-gray-600 text-center leading-snug">
+                  Draw freely · Add sticky notes · Shapes · Arrows · Text
+                </div>
+              </div>
+            </>
+          )}
+
           {/* ── Media tabs (image / video / svg) ── */}
-          {tab !== 'diagram' && (
+          {tab !== 'diagram' && tab !== 'html' && tab !== 'whiteboard' && (
             <>
               {/* File picker + URL field */}
               <FilePickerField
@@ -344,9 +502,11 @@ export default function InsertMediaModal({ onClose }: Props) {
         <div className="px-5 py-4 border-t border-white/10 flex justify-end gap-2">
           <button className="btn-ghost text-sm" onClick={onClose}>Cancel</button>
           <button className="btn-primary text-sm" onClick={handleInsert}>
-            {tab === 'diagram' ? 'Insert Diagram'
-              : tab === 'image' ? 'Insert Image'
-              : tab === 'video' ? 'Insert Video'
+            {tab === 'diagram'    ? 'Insert Diagram'
+              : tab === 'image'   ? 'Insert Image'
+              : tab === 'video'   ? 'Insert Video'
+              : tab === 'html'    ? 'Insert HTML Embed'
+              : tab === 'whiteboard' ? '✏️ Add Whiteboard'
               : 'Insert Media'}
           </button>
         </div>

@@ -1,7 +1,8 @@
 import { useRef, useState } from 'react';
 import { useEditorStore } from '../../store/useEditorStore.ts';
-import type { Element as PEl, Theme, Asset, ElementPosition } from '@/core/schema';
+import type { Element as PEl, Theme, Asset, ElementPosition, WhiteboardElement } from '@/core/schema';
 import CanvasElementContent from './CanvasElementContent.tsx';
+import WhiteboardModal from '../Whiteboard/WhiteboardModal.tsx';
 
 export const CANVAS_W = 1600;
 export const CANVAS_H = 900;
@@ -42,9 +43,10 @@ function applyResizeDelta(
 export default function ElementWidget({ element, elementIndex, slideIndex, canvasRef, scale, isSelected, theme, assets }: Props) {
   const { selectElement, updateElement } = useEditorStore();
   const widgetRef = useRef<HTMLDivElement>(null);
-  const [hover, setHover]   = useState(false);
-  const [editing, setEditing] = useState(false);
-  const [livePos, setLivePos] = useState<ElementPosition | null>(null);
+  const [hover, setHover]         = useState(false);
+  const [editing, setEditing]     = useState(false);
+  const [livePos, setLivePos]     = useState<ElementPosition | null>(null);
+  const [wbOpen, setWbOpen]       = useState(false);
 
   const isAbs = element.position.mode === 'absolute';
   const displayPos = livePos ?? (isAbs ? element.position : null);
@@ -172,6 +174,7 @@ export default function ElementWidget({ element, elementIndex, slideIndex, canva
 
   const showHandles = isSelected && !!displayPos;
   const canEdit = ['text', 'heading'].includes(element.type);
+  const isWhiteboard = element.type === 'whiteboard';
 
   function handlePositionStyle(h: Handle): React.CSSProperties {
     const base: React.CSSProperties = {
@@ -191,6 +194,7 @@ export default function ElementWidget({ element, elementIndex, slideIndex, canva
   }
 
   return (
+    <>
     <div
       ref={widgetRef}
       style={{
@@ -205,7 +209,11 @@ export default function ElementWidget({ element, elementIndex, slideIndex, canva
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
       onClick={(e) => { e.stopPropagation(); selectElement(elementIndex); }}
-      onDoubleClick={(e) => { e.stopPropagation(); if (canEdit) setEditing(true); }}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        if (isWhiteboard) { setWbOpen(true); return; }
+        if (canEdit) setEditing(true);
+      }}
       onMouseDown={editing ? undefined : onDragStart}
     >
       {/* Floating label when selected */}
@@ -249,6 +257,40 @@ export default function ElementWidget({ element, elementIndex, slideIndex, canva
       {showHandles && HANDLES.map((h) => (
         <div key={h} style={handlePositionStyle(h)} onMouseDown={(e) => onResizeStart(e, h)} />
       ))}
+
+      {/* Whiteboard "Edit" overlay — visible when selected */}
+      {isWhiteboard && isSelected && !wbOpen && (
+        <button
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => { e.stopPropagation(); setWbOpen(true); }}
+          style={{
+            position: 'absolute', bottom: 8, right: 8, zIndex: 25,
+            padding: '5px 12px', borderRadius: 6,
+            background: '#4f46e5', border: '1px solid rgba(99,102,241,0.5)',
+            color: '#fff', fontSize: 11, fontWeight: 600,
+            cursor: 'pointer', fontFamily: 'system-ui, sans-serif',
+            display: 'flex', alignItems: 'center', gap: 5,
+          }}
+        >
+          ✏️ Edit Whiteboard
+        </button>
+      )}
     </div>
+
+    {/* Whiteboard full-screen modal — portal-like fixed overlay */}
+    {wbOpen && (
+      <WhiteboardModal
+        snapshot={(element as WhiteboardElement).snapshot}
+        onClose={() => setWbOpen(false)}
+        onSave={(snap, svgDataUrl) => {
+          updateElement(slideIndex, elementIndex, {
+            snapshot: snap,
+            svgDataUrl,
+          } as Partial<PEl>);
+          setWbOpen(false);
+        }}
+      />
+    )}
+    </>
   );
 }

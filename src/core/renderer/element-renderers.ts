@@ -25,6 +25,7 @@ import type {
   DividerElement,
   IconElement,
   QuizElement,
+  WhiteboardElement,
   Asset,
   ElementStyle,
 } from '../schema.ts';
@@ -101,6 +102,7 @@ function renderElementInner(el: Element, ctx: RenderContext): string {
     case 'icon':        return renderIcon(el);
     case 'quiz':        return renderQuiz(el);
     // Flowchart, chart, shape, timeline — placeholders for now
+    case 'whiteboard':  return renderWhiteboard(el as WhiteboardElement);
     case 'flowchart':   return `<div class="ppt-flowchart-placeholder" data-id="${el.id}">[Flowchart: rendered by React Flow]</div>`;
     case 'chart':       return `<div class="ppt-chart-placeholder" data-id="${el.id}">[Chart]</div>`;
     case 'shape':       return `<div class="ppt-shape-placeholder" data-id="${el.id}"></div>`;
@@ -247,16 +249,30 @@ function renderAudio(el: AudioElement, ctx: RenderContext): string {
 
 // ─── EMBED ───────────────────────────────────────────────────
 
+// Encode HTML content for use in the srcdoc attribute.
+// The browser HTML-decodes attribute values, so we must encode & and " only.
+function encodeSrcdoc(html: string): string {
+  return html.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+}
+
+const HTML_EMBED_ALLOW =
+  'accelerometer; camera; encrypted-media; fullscreen; gyroscope; ' +
+  'magnetometer; microphone; midi; payment; usb; vr; web-share; ' +
+  'xr-spatial-tracking; autoplay';
+
 function renderEmbed(el: EmbedElement): string {
   if (el.embedType === 'iframe' && el.url) {
-    return `<iframe class="ppt-video-embed" src="${escapeHtml(el.url)}" ${el.allowInteraction ? '' : 'sandbox=""'} loading="lazy"></iframe>`;
+    return `<iframe class="ppt-embed-frame" src="${escapeHtml(el.url)}" allow="${HTML_EMBED_ALLOW}" allowfullscreen ${el.allowInteraction ? '' : 'sandbox="allow-scripts"'} loading="lazy"></iframe>`;
   }
   if (el.embedType === 'pdf' && el.url) {
-    return `<iframe class="ppt-video-embed" src="${escapeHtml(el.url)}#view=FitH" loading="lazy"></iframe>`;
+    return `<iframe class="ppt-embed-frame" src="${escapeHtml(el.url)}#view=FitH" loading="lazy"></iframe>`;
   }
   if (el.embedType === 'html' && el.htmlContent) {
-    // Sanitise before use in production; here we trust the schema author
-    return `<div class="ppt-embed-html">${el.htmlContent}</div>`;
+    // Run HTML file content inside a sandboxed srcdoc iframe.
+    // allow-scripts enables JavaScript (Three.js, Babylon.js, WebGL, etc.)
+    // allow-same-origin lets the frame access its own storage / resources.
+    const srcdoc = encodeSrcdoc(el.htmlContent);
+    return `<iframe class="ppt-embed-frame" srcdoc="${srcdoc}" sandbox="allow-scripts allow-same-origin allow-pointer-lock allow-popups" allow="${HTML_EMBED_ALLOW}" allowfullscreen></iframe>`;
   }
   return '';
 }
@@ -381,6 +397,15 @@ function renderQuiz(el: QuizElement): string {
   </div>
   ${feedback}
 </div>`;
+}
+
+// ─── WHITEBOARD ───────────────────────────────────────────────
+
+function renderWhiteboard(el: WhiteboardElement): string {
+  if (el.svgDataUrl) {
+    return `<img class="ppt-whiteboard" src="${escapeHtml(el.svgDataUrl)}" alt="Whiteboard" style="width:100%;height:100%;object-fit:contain;display:block;">`;
+  }
+  return `<div class="ppt-whiteboard ppt-whiteboard--empty" style="width:100%;height:100%;min-height:120px;display:flex;align-items:center;justify-content:center;border:2px dashed rgba(99,102,241,0.3);border-radius:8px;color:rgba(165,180,252,0.5);font-size:13px;">Whiteboard</div>`;
 }
 
 // ─── ASSET RESOLUTION ────────────────────────────────────────

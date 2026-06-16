@@ -79,6 +79,7 @@ export function generateThemeCss(theme: Theme): string {
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
+  overflow-y: auto !important;
 }
 
 /* Absolutely-positioned elements overlay the slide without disrupting flow */
@@ -234,6 +235,23 @@ export function generateThemeCss(theme: Theme): string {
   aspect-ratio: 16 / 9;
   border: none;
   border-radius: var(--ppt-radius);
+}
+
+/* HTML / 3D embed iframe — fills its positioned container */
+.reveal .ppt-embed-frame {
+  width: 100%;
+  height: 100%;
+  border: none;
+  display: block;
+  border-radius: var(--ppt-radius);
+  background: transparent;
+}
+/* When inside an absolute-positioned ppt-abs-el, fill 100% */
+.reveal .ppt-abs-el .ppt-embed-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
 }
 
 /* ── Callouts ── */
