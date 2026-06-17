@@ -133,3 +133,36 @@ export async function fetchFileContent(
   if (!res.ok) throw new Error(`Could not fetch "${filePath}": ${res.status}`);
   return res.text();
 }
+
+/**
+ * Fetch a binary file (image, etc.) and return it as a base64 data URI.
+ * Returns null if the file is not found (404) so callers can silently skip.
+ */
+export async function fetchFileAsDataUrl(
+  config: GitLabConfig,
+  filePath: string
+): Promise<string | null> {
+  const { url, projectId, branch, token } = config;
+  const base = apiBase(url);
+  const pid = encodeProjectId(projectId);
+
+  let res: Response;
+  try {
+    res = await fetch(
+      `${base}/projects/${pid}/repository/files/${encodeURIComponent(filePath)}/raw` +
+      `?ref=${encodeURIComponent(branch)}`,
+      { headers: authHeaders(token) }
+    );
+  } catch {
+    return null;
+  }
+  if (!res.ok) return null;
+
+  const blob = await res.blob();
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload  = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}

@@ -4,6 +4,7 @@ import {
   testConnection,
   listMdFiles,
   fetchFileContent,
+  fetchFileAsDataUrl,
 } from '../../services/gitlab.ts';
 import type { GitLabConfig, GitLabFile } from '../../services/gitlab.ts';
 import { adocToMarkdown } from '../../core/parser/adoc-to-md.ts';
@@ -83,6 +84,7 @@ export default function GitLabModal({ onClose }: Props) {
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
   const [importing, setImporting] = useState(false);
+  const [importStatus, setImportStatus] = useState('');
 
   const groups = useMemo(() => groupByFolder(files), [files]);
 
@@ -133,29 +135,73 @@ export default function GitLabModal({ onClose }: Props) {
   async function handleImport() {
     if (selectedPaths.size === 0 || !gitlabConfig) return;
     setImporting(true);
+    setImportStatus('Fetching files…');
     setError('');
     try {
-      // Preserve order from original files array
       const ordered = files.filter((f) => selectedPaths.has(f.path));
 
-      // Fetch all in parallel
+      // 1. Fetch all text files in parallel
       const contents = await Promise.all(
         ordered.map((f) => fetchFileContent(gitlabConfig, f.path))
       );
 
-      // Convert each to Markdown, then join with a blank line separator
-      const combined = ordered
-        .map((f, idx) =>
-          f.ext === 'adoc' ? adocToMarkdown(contents[idx]) : contents[idx]
-        )
-        .join('\n\n');
+      // 2. Convert adoc → markdown per file
+      const markdownParts = ordered.map((f, idx) =>
+        f.ext === 'adoc' ? adocToMarkdown(contents[idx]) : contents[idx]
+      );
 
-      parseFromMarkdown(combined);
+      // 3. For each file, find relative image refs and replace with base64 data URIs
+      setImportStatus('Fetching images…');
+
+      const IMG_RE = /!\[([^\]]*)\]\(([^)]+)\)/g;
+
+      const resolvedParts = await Promise.all(
+        markdownParts.map(async (md, idx) => {
+          // Directory of the source file (e.g. "WorkDir/Chapter 1")
+          const filePath = ordered[idx].path;
+          const fileDir  = filePath.includes('/')
+            ? filePath.substring(0, filePath.lastIndexOf('/'))
+            : '';
+
+          // Collect unique relative image paths in this file
+          const relativePaths = new Set<string>();
+          let m: RegExpExecArray | null;
+          IMG_RE.lastIndex = 0;
+          while ((m = IMG_RE.exec(md)) !== null) {
+            const src = m[2];
+            if (!src.startsWith('http') && !src.startsWith('data:') && !src.startsWith('/')) {
+              relativePaths.add(src);
+            }
+          }
+
+          if (relativePaths.size === 0) return md;
+
+          // Fetch all images in parallel; skip ones that 404
+          const dataUrls = new Map<string, string>();
+          await Promise.all(
+            [...relativePaths].map(async (imgPath) => {
+              const gitlabPath = fileDir ? `${fileDir}/${imgPath}` : imgPath;
+              const dataUrl = await fetchFileAsDataUrl(gitlabConfig!, gitlabPath);
+              if (dataUrl) dataUrls.set(imgPath, dataUrl);
+            })
+          );
+
+          // Replace relative paths with data URIs in-place
+          return md.replace(IMG_RE, (_full, alt, src) => {
+            const replacement = dataUrls.get(src);
+            return replacement ? `![${alt}](${replacement})` : `![${alt}](${src})`;
+          });
+        })
+      );
+
+      setImportStatus('Building presentation…');
+      parseFromMarkdown(resolvedParts.join('\n\n'));
       onClose();
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setImporting(false);
+      setImportStatus('');
     }
   }
 
@@ -469,7 +515,7 @@ export default function GitLabModal({ onClose }: Props) {
                   disabled={selectedCount === 0 || importing}
                 >
                   {importing
-                    ? <><span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />Importing…</>
+                    ? <><span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />{importStatus || 'Importing…'}</>
                     : `Import${selectedCount > 1 ? ` ${selectedCount} Files` : ' Presentation'}`}
                 </button>
               </div>

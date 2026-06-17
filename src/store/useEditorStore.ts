@@ -271,6 +271,13 @@ export const useEditorStore = create<EditorState & EditorActions>()(
         selectedSlideIndex: state.selectedSlideIndex,
         gitlabConfig: state.gitlabConfig,
       }),
+      // If persisted state has no slides (corrupted / empty), reset to showcase
+      onRehydrateStorage: () => (state) => {
+        if (state && (!state.presentation?.slides?.length)) {
+          state.presentation = SHOWCASE_PRESENTATION;
+          state.selectedSlideIndex = 0;
+        }
+      },
     }
   )
 );
