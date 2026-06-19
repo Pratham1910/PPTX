@@ -143,26 +143,36 @@ export const useEditorStore = create<EditorState & EditorActions>()(
       },
 
       undo: () => {
-        const { presentation, past, future } = get();
+        const { presentation, past, future, selectedSlideIndex, selectedElementIndex } = get();
         if (past.length === 0) return;
         const previous = past[past.length - 1];
+        const safeSlide = Math.min(selectedSlideIndex, previous.slides.length - 1);
+        const safeEl    = selectedElementIndex !== null && selectedElementIndex < (previous.slides[safeSlide]?.elements.length ?? 0)
+          ? selectedElementIndex : null;
         set({
           presentation: previous,
           past: past.slice(0, -1),
           future: [presentation, ...future].slice(0, MAX_HISTORY),
           isDirty: true,
+          selectedSlideIndex: safeSlide,
+          selectedElementIndex: safeEl,
         });
       },
 
       redo: () => {
-        const { presentation, past, future } = get();
+        const { presentation, past, future, selectedSlideIndex, selectedElementIndex } = get();
         if (future.length === 0) return;
         const next = future[0];
+        const safeSlide = Math.min(selectedSlideIndex, next.slides.length - 1);
+        const safeEl    = selectedElementIndex !== null && selectedElementIndex < (next.slides[safeSlide]?.elements.length ?? 0)
+          ? selectedElementIndex : null;
         set({
           presentation: next,
           past: [...past, presentation].slice(-MAX_HISTORY),
           future: future.slice(1),
           isDirty: true,
+          selectedSlideIndex: safeSlide,
+          selectedElementIndex: safeEl,
         });
       },
 
@@ -279,7 +289,10 @@ export const useEditorStore = create<EditorState & EditorActions>()(
             }),
           },
           selectedElementIndex:
-            state.selectedElementIndex === elementIndex ? null : state.selectedElementIndex,
+            state.selectedElementIndex === null          ? null
+            : state.selectedElementIndex === elementIndex ? null
+            : state.selectedElementIndex > elementIndex   ? state.selectedElementIndex - 1
+            : state.selectedElementIndex,
         }));
       },
 
@@ -323,7 +336,11 @@ export const useEditorStore = create<EditorState & EditorActions>()(
         get()._pushHistory();
         set((state) => {
           const slides = state.presentation.slides.filter((_, i) => i !== index);
-          const newIndex = Math.min(state.selectedSlideIndex, slides.length - 1);
+          // If the deleted slide was BEFORE the selected one, the selected item
+          // shifts down by 1. Otherwise clamp to the new array length.
+          const newIndex = state.selectedSlideIndex > index
+            ? state.selectedSlideIndex - 1
+            : Math.min(state.selectedSlideIndex, slides.length - 1);
           return {
             isDirty: true,
             selectedSlideIndex: newIndex,
