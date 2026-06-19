@@ -26,6 +26,8 @@ import type {
   IconElement,
   QuizElement,
   WhiteboardElement,
+  ChartElement,
+  ShapeElement,
   Asset,
   ElementStyle,
 } from '../schema.ts';
@@ -101,11 +103,11 @@ function renderElementInner(el: Element, ctx: RenderContext): string {
     case 'divider':     return renderDivider(el);
     case 'icon':        return renderIcon(el);
     case 'quiz':        return renderQuiz(el);
-    // Flowchart, chart, shape, timeline — placeholders for now
     case 'whiteboard':  return renderWhiteboard(el as WhiteboardElement);
+    case 'chart':       return renderChart(el as ChartElement);
+    case 'shape':       return renderShape(el as ShapeElement);
+    // Flowchart, timeline — placeholders for now
     case 'flowchart':   return `<div class="ppt-flowchart-placeholder" data-id="${el.id}">[Flowchart: rendered by React Flow]</div>`;
-    case 'chart':       return `<div class="ppt-chart-placeholder" data-id="${el.id}">[Chart]</div>`;
-    case 'shape':       return `<div class="ppt-shape-placeholder" data-id="${el.id}"></div>`;
     case 'timeline':    return `<div class="ppt-timeline-placeholder" data-id="${el.id}">[Timeline]</div>`;
     default:            return '';
   }
@@ -406,6 +408,67 @@ function renderWhiteboard(el: WhiteboardElement): string {
     return `<img class="ppt-whiteboard" src="${escapeHtml(el.svgDataUrl)}" alt="Whiteboard" style="width:100%;height:100%;object-fit:contain;display:block;">`;
   }
   return `<div class="ppt-whiteboard ppt-whiteboard--empty" style="width:100%;height:100%;min-height:120px;display:flex;align-items:center;justify-content:center;border:2px dashed rgba(99,102,241,0.3);border-radius:8px;color:rgba(165,180,252,0.5);font-size:13px;">Whiteboard</div>`;
+}
+
+// ─── CHART ───────────────────────────────────────────────────
+
+function renderChart(el: ChartElement): string {
+  // Chart.js requires a canvas. We render a placeholder container that the
+  // presentation viewer will mount Chart.js into during initialization.
+  const config = JSON.stringify({
+    type: el.chartType,
+    data: el.data,
+    options: el.options,
+  });
+  return `<div class="ppt-chart-container" style="width:100%;height:100%;min-height:200px;">
+  <canvas class="ppt-chart-canvas" data-chart-config='${escapeHtml(config)}'></canvas>
+</div>`;
+}
+
+// ─── SHAPE ───────────────────────────────────────────────────
+
+function renderShape(el: ShapeElement): string {
+  const fill = el.fill ?? 'transparent';
+  const stroke = el.stroke ?? 'transparent';
+  const strokeW = el.strokeWidth ?? 0;
+  const opacity = el.opacity ?? 1;
+
+  // We render shapes using basic SVG for scaling
+  // To keep it simple, we use a single viewBox and scale it via CSS.
+  let path = '';
+  switch (el.shape) {
+    case 'rectangle':
+      path = `<rect x="0" y="0" width="100" height="100" />`;
+      break;
+    case 'rounded-rectangle':
+      path = `<rect x="0" y="0" width="100" height="100" rx="10" ry="10" />`;
+      break;
+    case 'circle':
+    case 'ellipse':
+      path = `<ellipse cx="50" cy="50" rx="50" ry="50" />`;
+      break;
+    case 'triangle':
+      path = `<polygon points="50,0 100,100 0,100" />`;
+      break;
+    default:
+      // Fallback for others
+      path = `<rect x="0" y="0" width="100" height="100" />`;
+  }
+
+  const svg = `<svg viewBox="0 0 100 100" preserveAspectRatio="none" style="width:100%;height:100%;display:block;opacity:${opacity};">
+  <g fill="${escapeHtml(fill)}" stroke="${escapeHtml(stroke)}" stroke-width="${strokeW}">
+    ${path}
+  </g>
+</svg>`;
+
+  const labelHtml = el.label
+    ? `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:${escapeHtml(stroke)};text-align:center;">${escapeHtml(el.label)}</div>`
+    : '';
+
+  return `<div class="ppt-shape" style="position:relative;width:100%;height:100%;min-width:40px;min-height:40px;">
+  ${svg}
+  ${labelHtml}
+</div>`;
 }
 
 // ─── ASSET RESOLUTION ────────────────────────────────────────

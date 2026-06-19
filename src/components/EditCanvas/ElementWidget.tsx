@@ -78,8 +78,23 @@ export default function ElementWidget({ element, elementIndex, slideIndex, canva
 
     selectElement(elementIndex);
 
-    const startRect = getElementCanvasRect();
-    if (!startRect) return;
+    const rawRect = getElementCanvasRect();
+    if (!rawRect) return;
+
+    // If the element was in flow mode (no explicit position) its measured
+    // DOM rect may span nearly the full canvas. Cap it to a sensible default
+    // size so the converted absolute element isn't giant.
+    const isFlow = element.position.mode !== 'absolute';
+    const MAX_W = 50; // max 50% canvas width when snapping from flow
+    const MAX_H = 50; // max 50% canvas height
+    const startRect = isFlow
+      ? {
+          x: rawRect.x,
+          y: rawRect.y,
+          w: Math.min(rawRect.w, MAX_W),
+          h: Math.min(rawRect.h, MAX_H),
+        }
+      : rawRect;
 
     const startMouse = { x: e.clientX, y: e.clientY };
 
@@ -169,8 +184,8 @@ export default function ElementWidget({ element, elementIndex, slideIndex, canva
     : {};
 
   const outline = isSelected
-    ? '2px solid #6366f1'
-    : hover ? '1.5px solid rgba(99,102,241,0.45)' : '1.5px solid transparent';
+    ? '1.5px solid #6366f1'
+    : hover ? '1px solid rgba(99,102,241,0.45)' : '1px solid transparent';
 
   const showHandles = isSelected && !!displayPos;
   const canEdit = ['text', 'heading'].includes(element.type);
@@ -178,9 +193,10 @@ export default function ElementWidget({ element, elementIndex, slideIndex, canva
 
   function handlePositionStyle(h: Handle): React.CSSProperties {
     const base: React.CSSProperties = {
-      position: 'absolute', width: 10, height: 10,
-      background: '#6366f1', border: '2px solid white',
-      borderRadius: 2, transform: 'translate(-50%, -50%)',
+      position: 'absolute', width: 11, height: 11,
+      background: '#ffffff', border: '1.5px solid #6366f1',
+      borderRadius: '50%', transform: 'translate(-50%, -50%)',
+      boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
       cursor: HANDLE_CURSORS[h], zIndex: 20, pointerEvents: 'auto',
     };
     if (h === 'tl') return { ...base, left: 0,     top: 0 };

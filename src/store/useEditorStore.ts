@@ -5,6 +5,8 @@ import type {
   Presentation,
   Slide,
   SlideLayout,
+  SlideBackground,
+  SlideTransitionOverride,
   Element as PresentationElement,
   Asset,
   Theme,
@@ -12,6 +14,25 @@ import type {
 import { SHOWCASE_PRESENTATION } from '../data/showcase.ts';
 import type { GitLabConfig } from '../services/gitlab.ts';
 
+/**
+ * A presentation template imported by the user from a PPTX / JSON file.
+ * Stored in localStorage alongside the active presentation.
+ */
+export interface UserImportedTemplate {
+  id:          string;
+  name:        string;
+  description: string;
+  /** CSS gradient string used as the thumbnail preview card background. */
+  thumbnail:   string;
+  /** Hex accent colour shown on the thumbnail. */
+  accent:      string;
+  importedAt:  string;
+  /** Full parsed Presentation AST — applied via loadPresentation() directly. */
+  presentation: Presentation;
+}
+
+/** Maximum number of undo steps kept in memory. */
+const MAX_HISTORY = 50;
 
 function newBlankSlide(order: number): Slide {
   return {
@@ -40,6 +61,14 @@ interface EditorState {
   isPresentationMode: boolean;
   isEditMode: boolean;
   gitlabConfig: GitLabConfig | null;
+  /** Endpoint URL for presentation analytics (sendBeacon target). Null = disabled. */
+  analyticsEndpoint: string | null;
+  /** User-imported PPTX / JSON templates, persisted across reloads. */
+  userTemplates: UserImportedTemplate[];
+  /** Snapshots of `presentation` before each mutating action (undo stack). */
+  past: Presentation[];
+  /** Snapshots pushed onto this stack when undoing (redo stack). */
+  future: Presentation[];
 }
 
 interface EditorActions {
@@ -60,14 +89,30 @@ interface EditorActions {
   addElement: (slideIndex: number, element: PresentationElement, asset?: Asset) => void;
 
   addSlide: () => void;
+  duplicateSlide: (index: number) => void;
   deleteSlide: (index: number) => void;
   reorderSlide: (from: number, to: number) => void;
   updateSlideAutoAnimate: (slideIndex: number, autoAnimateId: string | undefined) => void;
+  updateSlideBackground: (slideIndex: number, background: SlideBackground) => void;
+  updateSlideTransition: (slideIndex: number, transition: SlideTransitionOverride | undefined) => void;
   applyTheme: (theme: Theme) => void;
   enterPresentationMode: () => void;
   exitPresentationMode: () => void;
   markSaved: () => void;
   setGitlabConfig: (config: GitLabConfig | null) => void;
+  /** Set or clear the analytics endpoint URL. */
+  setAnalyticsEndpoint: (url: string | null) => void;
+  /** Save a newly imported template to the persistent user template library. */
+  addUserTemplate: (t: UserImportedTemplate) => void;
+  /** Remove a user-imported template by id. */
+  removeUserTemplate: (id: string) => void;
+
+  /** Internal: push current presentation snapshot onto the undo stack. */
+  _pushHistory: () => void;
+  /** Undo the last mutating action (Ctrl+Z). */
+  undo: () => void;
+  /** Redo the last undone action (Ctrl+Y / Ctrl+Shift+Z). */
+  redo: () => void;
 }
 
 const initialPresentation = SHOWCASE_PRESENTATION;
@@ -75,194 +120,327 @@ const initialPresentation = SHOWCASE_PRESENTATION;
 export const useEditorStore = create<EditorState & EditorActions>()(
   persist(
     (set, get) => ({
-  presentation: initialPresentation,
-  selectedSlideIndex: 0,
-  selectedElementIndex: null,
-  isDirty: false,
-  isPresentationMode: false,
-  isEditMode: false,
-  gitlabConfig: null,
+      // ── Initial state ──────────────────────────────────────────────────
 
-  loadPresentation: (p) => set({ presentation: p, selectedSlideIndex: 0, selectedElementIndex: null, isDirty: false }),
+      presentation: initialPresentation,
+      selectedSlideIndex: 0,
+      selectedElementIndex: null,
+      isDirty: false,
+      userTemplates: [],
+      isPresentationMode: false,
+      isEditMode: false,
+      gitlabConfig: null,
+      analyticsEndpoint: null,
+      past: [],
+      future: [],
 
-  parseFromMarkdown: (md) => {
-    try {
-      const p = markdownToPresentation(md);
-      set({ presentation: p, selectedSlideIndex: 0, selectedElementIndex: null, isDirty: false });
-    } catch {
-      // Invalid Markdown — ignore silently
-    }
-  },
+      // ── History helpers ────────────────────────────────────────────────
 
-  parseFromAdoc: (adoc) => {
-    try {
-      const md = adocToMarkdown(adoc);
-      const p = markdownToPresentation(md);
-      set({ presentation: p, selectedSlideIndex: 0, selectedElementIndex: null, isDirty: false });
-    } catch {
-      // Invalid AsciiDoc — ignore silently
-    }
-  },
-
-  selectSlide: (index) => set({ selectedSlideIndex: index, selectedElementIndex: null }),
-
-  selectElement: (index) => set({ selectedElementIndex: index }),
-
-  updateSlideTitle: (slideIndex, title) =>
-    set((state) => ({
-      isDirty: true,
-      presentation: {
-        ...state.presentation,
-        meta: { ...state.presentation.meta, updatedAt: new Date().toISOString() },
-        slides: state.presentation.slides.map((s, i) =>
-          i === slideIndex ? { ...s, title } : s,
-        ),
+      _pushHistory: () => {
+        const { presentation, past } = get();
+        set({ past: [...past, presentation].slice(-MAX_HISTORY), future: [] });
       },
-    })),
 
-  updateSlideNotes: (slideIndex, notes) =>
-    set((state) => ({
-      isDirty: true,
-      presentation: {
-        ...state.presentation,
-        slides: state.presentation.slides.map((s, i) =>
-          i === slideIndex ? { ...s, notes } : s,
-        ),
+      undo: () => {
+        const { presentation, past, future } = get();
+        if (past.length === 0) return;
+        const previous = past[past.length - 1];
+        set({
+          presentation: previous,
+          past: past.slice(0, -1),
+          future: [presentation, ...future].slice(0, MAX_HISTORY),
+          isDirty: true,
+        });
       },
-    })),
 
-  updateSlideLayout: (slideIndex, layout) =>
-    set((state) => ({
-      isDirty: true,
-      presentation: {
-        ...state.presentation,
-        slides: state.presentation.slides.map((s, i) =>
-          i === slideIndex ? { ...s, layout } : s,
-        ),
+      redo: () => {
+        const { presentation, past, future } = get();
+        if (future.length === 0) return;
+        const next = future[0];
+        set({
+          presentation: next,
+          past: [...past, presentation].slice(-MAX_HISTORY),
+          future: future.slice(1),
+          isDirty: true,
+        });
       },
-    })),
 
-  updateElement: (slideIndex, elementIndex, patch) =>
-    set((state) => ({
-      isDirty: true,
-      presentation: {
-        ...state.presentation,
-        meta: { ...state.presentation.meta, updatedAt: new Date().toISOString() },
-        slides: state.presentation.slides.map((s, si) => {
-          if (si !== slideIndex) return s;
-          return {
-            ...s,
-            elements: s.elements.map((el, ei) =>
-              ei === elementIndex ? ({ ...el, ...patch } as PresentationElement) : el,
+      // ── Presentation loading ───────────────────────────────────────────
+
+      loadPresentation: (p) => {
+        get()._pushHistory();
+        set({ presentation: p, selectedSlideIndex: 0, selectedElementIndex: null, isDirty: false });
+      },
+
+      parseFromMarkdown: (md) => {
+        try {
+          const p = markdownToPresentation(md);
+          get()._pushHistory();
+          set({ presentation: p, selectedSlideIndex: 0, selectedElementIndex: null, isDirty: false });
+        } catch {
+          // Invalid Markdown — ignore silently
+        }
+      },
+
+      parseFromAdoc: (adoc) => {
+        try {
+          const md = adocToMarkdown(adoc);
+          const p = markdownToPresentation(md);
+          get()._pushHistory();
+          set({ presentation: p, selectedSlideIndex: 0, selectedElementIndex: null, isDirty: false });
+        } catch {
+          // Invalid AsciiDoc — ignore silently
+        }
+      },
+
+      // ── Non-mutating selection ─────────────────────────────────────────
+
+      selectSlide: (index) => set({ selectedSlideIndex: index, selectedElementIndex: null }),
+
+      selectElement: (index) => set({ selectedElementIndex: index }),
+
+      // ── Slide mutations ────────────────────────────────────────────────
+
+      updateSlideTitle: (slideIndex, title) => {
+        get()._pushHistory();
+        set((state) => ({
+          isDirty: true,
+          presentation: {
+            ...state.presentation,
+            meta: { ...state.presentation.meta, updatedAt: new Date().toISOString() },
+            slides: state.presentation.slides.map((s, i) =>
+              i === slideIndex ? { ...s, title } : s,
             ),
-          };
-        }),
+          },
+        }));
       },
-    })),
 
-  deleteElement: (slideIndex, elementIndex) =>
-    set((state) => ({
-      isDirty: true,
-      presentation: {
-        ...state.presentation,
-        slides: state.presentation.slides.map((s, si) => {
-          if (si !== slideIndex) return s;
+      updateSlideNotes: (slideIndex, notes) => {
+        get()._pushHistory();
+        set((state) => ({
+          isDirty: true,
+          presentation: {
+            ...state.presentation,
+            slides: state.presentation.slides.map((s, i) =>
+              i === slideIndex ? { ...s, notes } : s,
+            ),
+          },
+        }));
+      },
+
+      updateSlideLayout: (slideIndex, layout) => {
+        get()._pushHistory();
+        set((state) => ({
+          isDirty: true,
+          presentation: {
+            ...state.presentation,
+            slides: state.presentation.slides.map((s, i) =>
+              i === slideIndex ? { ...s, layout } : s,
+            ),
+          },
+        }));
+      },
+
+      // ── Element mutations ──────────────────────────────────────────────
+
+      updateElement: (slideIndex, elementIndex, patch) => {
+        get()._pushHistory();
+        set((state) => ({
+          isDirty: true,
+          presentation: {
+            ...state.presentation,
+            meta: { ...state.presentation.meta, updatedAt: new Date().toISOString() },
+            slides: state.presentation.slides.map((s, si) => {
+              if (si !== slideIndex) return s;
+              return {
+                ...s,
+                elements: s.elements.map((el, ei) =>
+                  ei === elementIndex ? ({ ...el, ...patch } as PresentationElement) : el,
+                ),
+              };
+            }),
+          },
+        }));
+      },
+
+      deleteElement: (slideIndex, elementIndex) => {
+        get()._pushHistory();
+        set((state) => ({
+          isDirty: true,
+          presentation: {
+            ...state.presentation,
+            slides: state.presentation.slides.map((s, si) => {
+              if (si !== slideIndex) return s;
+              return {
+                ...s,
+                elements: s.elements.filter((_, ei) => ei !== elementIndex),
+              };
+            }),
+          },
+          selectedElementIndex:
+            state.selectedElementIndex === elementIndex ? null : state.selectedElementIndex,
+        }));
+      },
+
+      addElement: (slideIndex, element, asset) => {
+        get()._pushHistory();
+        set((state) => ({
+          isDirty: true,
+          presentation: {
+            ...state.presentation,
+            assets: asset ? [...state.presentation.assets, asset] : state.presentation.assets,
+            slides: state.presentation.slides.map((s, si) => {
+              if (si !== slideIndex) return s;
+              return { ...s, elements: [...s.elements, element] };
+            }),
+          },
+          selectedElementIndex: state.presentation.slides[slideIndex]?.elements.length ?? null,
+        }));
+      },
+
+      // ── Slide list mutations ───────────────────────────────────────────
+
+      addSlide: () => {
+        get()._pushHistory();
+        set((state) => {
+          const newSlide = newBlankSlide(state.presentation.slides.length);
           return {
-            ...s,
-            elements: s.elements.filter((_, ei) => ei !== elementIndex),
+            isDirty: true,
+            selectedSlideIndex: state.presentation.slides.length,
+            selectedElementIndex: null,
+            presentation: {
+              ...state.presentation,
+              slides: [...state.presentation.slides, newSlide],
+            },
           };
-        }),
+        });
       },
-      selectedElementIndex:
-        state.selectedElementIndex === elementIndex ? null : state.selectedElementIndex,
-    })),
 
-  addElement: (slideIndex, element, asset) =>
-    set((state) => ({
-      isDirty: true,
-      presentation: {
-        ...state.presentation,
-        assets: asset ? [...state.presentation.assets, asset] : state.presentation.assets,
-        slides: state.presentation.slides.map((s, si) => {
-          if (si !== slideIndex) return s;
-          return { ...s, elements: [...s.elements, element] };
-        }),
+      deleteSlide: (index) => {
+        // Guard: cannot delete the last slide — avoid polluting history with no-ops
+        if (get().presentation.slides.length <= 1) return;
+        get()._pushHistory();
+        set((state) => {
+          const slides = state.presentation.slides.filter((_, i) => i !== index);
+          const newIndex = Math.min(state.selectedSlideIndex, slides.length - 1);
+          return {
+            isDirty: true,
+            selectedSlideIndex: newIndex,
+            selectedElementIndex: null,
+            presentation: {
+              ...state.presentation,
+              slides: slides.map((s, i) => ({ ...s, order: i })),
+            },
+          };
+        });
       },
-      selectedElementIndex: state.presentation.slides[slideIndex]?.elements.length ?? null,
-    })),
 
-  addSlide: () =>
-    set((state) => {
-      const newSlide = newBlankSlide(state.presentation.slides.length);
-      return {
-        isDirty: true,
-        selectedSlideIndex: state.presentation.slides.length,
-        selectedElementIndex: null,
-        presentation: {
-          ...state.presentation,
-          slides: [...state.presentation.slides, newSlide],
-        },
-      };
-    }),
-
-  deleteSlide: (index) =>
-    set((state) => {
-      if (state.presentation.slides.length <= 1) return state;
-      const slides = state.presentation.slides.filter((_, i) => i !== index);
-      const newIndex = Math.min(state.selectedSlideIndex, slides.length - 1);
-      return {
-        isDirty: true,
-        selectedSlideIndex: newIndex,
-        selectedElementIndex: null,
-        presentation: {
-          ...state.presentation,
-          slides: slides.map((s, i) => ({ ...s, order: i })),
-        },
-      };
-    }),
-
-  updateSlideAutoAnimate: (slideIndex, autoAnimateId) =>
-    set((state) => ({
-      isDirty: true,
-      presentation: {
-        ...state.presentation,
-        slides: state.presentation.slides.map((s, i) =>
-          i === slideIndex ? { ...s, autoAnimateId: autoAnimateId || undefined } : s,
-        ),
+      reorderSlide: (from, to) => {
+        get()._pushHistory();
+        set((state) => {
+          const slides = [...state.presentation.slides];
+          const [moved] = slides.splice(from, 1);
+          slides.splice(to, 0, moved);
+          return {
+            isDirty: true,
+            selectedSlideIndex: to,
+            presentation: {
+              ...state.presentation,
+              slides: slides.map((s, i) => ({ ...s, order: i })),
+            },
+          };
+        });
       },
-    })),
 
-  applyTheme: (theme) =>
-    set((state) => ({
-      isDirty: true,
-      presentation: { ...state.presentation, theme },
-    })),
+      duplicateSlide: (index) => {
+        get()._pushHistory();
+        set((state) => {
+          const source = state.presentation.slides[index];
+          if (!source) return {};
+          // Deep-clone via JSON so the duplicate has its own IDs
+          const clone: Slide = JSON.parse(JSON.stringify(source));
+          clone.id = crypto.randomUUID();
+          clone.elements = clone.elements.map((el) => ({ ...el, id: crypto.randomUUID() }));
+          const slides = [
+            ...state.presentation.slides.slice(0, index + 1),
+            clone,
+            ...state.presentation.slides.slice(index + 1),
+          ].map((s, i) => ({ ...s, order: i }));
+          return {
+            isDirty: true,
+            selectedSlideIndex: index + 1,
+            selectedElementIndex: null,
+            presentation: { ...state.presentation, slides },
+          };
+        });
+      },
 
-  enterEditMode:  () => set({ isEditMode: true }),
-  exitEditMode:   () => set({ isEditMode: false }),
+      updateSlideBackground: (slideIndex, background) => {
+        get()._pushHistory();
+        set((state) => ({
+          isDirty: true,
+          presentation: {
+            ...state.presentation,
+            slides: state.presentation.slides.map((s, i) =>
+              i === slideIndex ? { ...s, background } : s,
+            ),
+          },
+        }));
+      },
 
-  enterPresentationMode: () => set({ isPresentationMode: true }),
+      updateSlideTransition: (slideIndex, transition) => {
+        get()._pushHistory();
+        set((state) => ({
+          isDirty: true,
+          presentation: {
+            ...state.presentation,
+            slides: state.presentation.slides.map((s, i) =>
+              i === slideIndex ? { ...s, transition } : s,
+            ),
+          },
+        }));
+      },
 
-  exitPresentationMode: () => set({ isPresentationMode: false }),
+      updateSlideAutoAnimate: (slideIndex, autoAnimateId) => {
+        get()._pushHistory();
+        set((state) => ({
+          isDirty: true,
+          presentation: {
+            ...state.presentation,
+            slides: state.presentation.slides.map((s, i) =>
+              i === slideIndex ? { ...s, autoAnimateId: autoAnimateId || undefined } : s,
+            ),
+          },
+        }));
+      },
 
-  markSaved: () => set({ isDirty: false }),
+      applyTheme: (theme) => {
+        get()._pushHistory();
+        set((state) => ({
+          isDirty: true,
+          presentation: { ...state.presentation, theme },
+        }));
+      },
 
-  setGitlabConfig: (config) => set({ gitlabConfig: config }),
+      // ── UI mode toggles ────────────────────────────────────────────────
 
-  reorderSlide: (from, to) =>
-    set((state) => {
-      const slides = [...state.presentation.slides];
-      const [moved] = slides.splice(from, 1);
-      slides.splice(to, 0, moved);
-      return {
-        isDirty: true,
-        selectedSlideIndex: to,
-        presentation: {
-          ...state.presentation,
-          slides: slides.map((s, i) => ({ ...s, order: i })),
-        },
-      };
-    }),
+      enterEditMode:  () => set({ isEditMode: true }),
+      exitEditMode:   () => set({ isEditMode: false }),
+
+      enterPresentationMode: () => set({ isPresentationMode: true }),
+      exitPresentationMode:  () => set({ isPresentationMode: false }),
+
+      markSaved: () => set({ isDirty: false }),
+
+      setGitlabConfig: (config) => set({ gitlabConfig: config }),
+
+      setAnalyticsEndpoint: (url) => set({ analyticsEndpoint: url }),
+
+      addUserTemplate: (t) =>
+        set((state) => ({ userTemplates: [t, ...state.userTemplates] })),
+
+      removeUserTemplate: (id) =>
+        set((state) => ({ userTemplates: state.userTemplates.filter((t) => t.id !== id) })),
     }),
     {
       name: 'pptautomation-state',
@@ -270,6 +448,10 @@ export const useEditorStore = create<EditorState & EditorActions>()(
         presentation: state.presentation,
         selectedSlideIndex: state.selectedSlideIndex,
         gitlabConfig: state.gitlabConfig,
+        analyticsEndpoint: state.analyticsEndpoint,
+        userTemplates: state.userTemplates,
+        // past and future (history stacks) are intentionally NOT persisted —
+        // history is transient and should reset on every page load.
       }),
       // If persisted state has no slides (corrupted / empty), reset to showcase
       onRehydrateStorage: () => (state) => {

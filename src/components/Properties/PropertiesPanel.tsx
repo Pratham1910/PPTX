@@ -21,6 +21,8 @@ import CodePanel from './panels/CodePanel.tsx';
 import CalloutPanel from './panels/CalloutPanel.tsx';
 import TablePanel from './panels/TablePanel.tsx';
 import DiagramPanel from './panels/DiagramPanel.tsx';
+import ChartPanel from './panels/ChartPanel.tsx';
+import ShapePanel from './panels/ShapePanel.tsx';
 import AnimationPanel from './panels/AnimationPanel.tsx';
 import InsertElementBar from './InsertElementBar.tsx';
 
@@ -79,6 +81,8 @@ function ElementEditor({
     case 'callout':     return <CalloutPanel element={element as CalloutElement} {...props} />;
     case 'table':       return <TablePanel element={element as TableElement} {...props} />;
     case 'diagram':     return <DiagramPanel element={element as DiagramElement} {...props} />;
+    case 'chart':       return <ChartPanel element={element as typeof element & { type: 'chart' }} {...props} />;
+    case 'shape':       return <ShapePanel element={element as typeof element & { type: 'shape' }} {...props} />;
     default:
       return (
         <p className="text-xs text-gray-500">
@@ -116,71 +120,82 @@ export default function PropertiesPanel() {
       <SlideProperties slide={slide} slideIndex={selectedSlideIndex} />
 
       {/* Element list */}
-      <div className="panel-section">
-        <p className="panel-section-title">Elements</p>
-        <div className="flex flex-col gap-0.5">
-          {slide.elements.map((el, i) => (
-            <button
-              key={el.id}
-              onClick={() => selectElement(i === selectedElementIndex ? null : i)}
-              className={[
-                'flex items-center gap-2 px-2 py-1.5 rounded text-left w-full transition-colors',
-                i === selectedElementIndex
-                  ? 'bg-indigo-600/30 border border-indigo-500/40'
-                  : 'hover:bg-white/5 border border-transparent',
-              ].join(' ')}
-            >
-              <ElementTypeIcon type={el.type} />
-              <span className="text-xs text-gray-300 flex-1 truncate">
-                {TYPE_LABELS[el.type] ?? el.type}
-                {el.type === 'heading'
-                  ? ` — ${(el as HeadingElement).content?.slice(0, 24)}`
-                  : el.type === 'text'
-                  ? ` — ${String((el as TextElement).content).slice(0, 24)}`
-                  : ''}
-              </span>
-              {el.animation?.entrance && el.animation.entrance.effect !== 'none' && (
-                <span className="text-[9px] text-indigo-400 font-bold flex-none" title="Has entrance animation">✦</span>
-              )}
-            </button>
-          ))}
-          {slide.elements.length === 0 && (
-            <p className="text-xs text-gray-500 px-2">No elements on this slide.</p>
-          )}
+      <details className="accordion-section" open>
+        <summary>
+          Elements
+        </summary>
+        <div className="accordion-content">
+          <div className="flex flex-col gap-1">
+            {slide.elements.map((el, i) => (
+              <button
+                key={el.id}
+                onClick={() => selectElement(i === selectedElementIndex ? null : i)}
+                className={[
+                  'flex items-center gap-2 px-2.5 py-1.5 rounded-md text-left w-full transition-all border',
+                  i === selectedElementIndex
+                    ? 'bg-accent/10 border-accent/40 text-white shadow-sm'
+                    : 'bg-surface-900 border-white/5 hover:border-white/10 hover:bg-white/5 text-gray-400',
+                ].join(' ')}
+              >
+                <ElementTypeIcon type={el.type} />
+                <span className={`text-[11px] flex-1 truncate ${i === selectedElementIndex ? 'font-medium text-indigo-100' : 'text-gray-300'}`}>
+                  {TYPE_LABELS[el.type] ?? el.type}
+                  {el.type === 'heading'
+                    ? ` — ${(el as HeadingElement).content?.slice(0, 24)}`
+                    : el.type === 'text'
+                    ? ` — ${String((el as TextElement).content).slice(0, 24)}`
+                    : ''}
+                </span>
+                {el.animation?.entrance && el.animation.entrance.effect !== 'none' && (
+                  <span className="text-[10px] text-accent font-bold flex-none" title="Has entrance animation">✦</span>
+                )}
+              </button>
+            ))}
+            {slide.elements.length === 0 && (
+              <div className="text-[11px] text-gray-500 px-3 py-4 text-center bg-surface-900 rounded-md border border-white/5 border-dashed">
+                No elements on this slide.
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      </details>
 
       {/* Selected element properties */}
       {selectedElement && (
-        <div className="panel-section">
-          <div className="flex items-center justify-between mb-3">
-            <p className="panel-section-title mb-0">
-              {TYPE_LABELS[selectedElement.type] ?? selectedElement.type}
-            </p>
-            <button
-              className="text-xs text-red-400 hover:text-red-300 transition-colors"
-              onClick={() => {
-                deleteElement(selectedSlideIndex, selectedElementIndex!);
-              }}
-            >
-              Delete
-            </button>
+        <details className="accordion-section" open>
+          <summary>
+            {TYPE_LABELS[selectedElement.type] ?? selectedElement.type} Settings
+          </summary>
+          <div className="accordion-content">
+            <div className="flex justify-end mb-2">
+              <button
+                className="text-[10px] text-red-400 hover:text-red-300 transition-colors bg-red-400/10 hover:bg-red-400/20 px-2 py-1 rounded"
+                onClick={() => deleteElement(selectedSlideIndex, selectedElementIndex!)}
+              >
+                Delete Element
+              </button>
+            </div>
+            <ElementEditor
+              element={selectedElement}
+              slideIndex={selectedSlideIndex}
+              elementIndex={selectedElementIndex!}
+            />
           </div>
-          <ElementEditor
-            element={selectedElement}
-            slideIndex={selectedSlideIndex}
-            elementIndex={selectedElementIndex!}
-          />
-        </div>
+        </details>
       )}
 
       {/* Animation panel — always shown when an element is selected */}
       {selectedElement && (
-        <AnimationPanel
-          animation={selectedElement.animation}
-          slideIndex={selectedSlideIndex}
-          elementIndex={selectedElementIndex!}
-        />
+        <details className="accordion-section">
+          <summary>Animations</summary>
+          <div className="accordion-content">
+            <AnimationPanel
+              animation={selectedElement.animation}
+              slideIndex={selectedSlideIndex}
+              elementIndex={selectedElementIndex!}
+            />
+          </div>
+        </details>
       )}
     </div>
   );

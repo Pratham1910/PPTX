@@ -27,33 +27,33 @@ export default function SlideThumb({ slide, index, isSelected, onClick }: Props)
     <button
       onClick={onClick}
       className={[
-        'w-full text-left px-2 py-2 rounded-md transition-colors group',
+        'relative w-full text-left p-2.5 rounded-xl transition-all group border',
         isSelected
-          ? 'bg-indigo-600/30 border border-indigo-500/60'
-          : 'hover:bg-white/5 border border-transparent',
+          ? 'bg-accent/10 border-accent shadow-sm'
+          : 'bg-transparent border-transparent hover:bg-white/5 hover:border-white/10',
       ].join(' ')}
     >
       {/* Slide number chip + layout badge */}
-      <div className="flex items-center gap-1.5 mb-1">
+      <div className="flex items-center justify-between mb-2">
         <span
-          className={`text-[10px] font-bold w-5 h-5 flex items-center justify-center rounded ${
-            isSelected ? 'bg-indigo-500 text-white' : 'bg-white/10 text-gray-400'
+          className={`text-[10px] font-bold w-5 h-5 flex items-center justify-center rounded-md transition-all ${
+            isSelected ? 'bg-accent text-white shadow-sm' : 'bg-surface-800 text-gray-400 group-hover:bg-surface-700'
           }`}
         >
           {index + 1}
         </span>
-        <span className="text-[10px] text-gray-500 truncate">{slide.layout}</span>
+        <span className={`text-[9px] font-bold uppercase tracking-widest ${isSelected ? 'text-accent/80' : 'text-gray-600 group-hover:text-gray-400'}`}>{slide.layout}</span>
       </div>
 
       {/* Thumbnail placeholder — aspect ratio 16:9 */}
-      <div className="w-full aspect-video bg-[#0f1117] border border-white/10 rounded overflow-hidden flex items-center justify-center mb-1.5">
-        <div className="w-full h-full p-1.5 flex flex-col gap-0.5 overflow-hidden">
+      <div className={`w-full aspect-video rounded-lg overflow-hidden flex items-center justify-center mb-2 transition-all shadow-inner border ${isSelected ? 'border-accent/30 bg-surface-900 shadow-accent/10' : 'border-white/5 bg-surface-900/50 group-hover:border-white/10 group-hover:bg-surface-900'}`}>
+        <div className="w-full h-full p-2 flex flex-col gap-1.5 overflow-hidden opacity-70">
           {slide.elements.slice(0, 3).map((el, i) => (
             <div
               key={el.id}
               className={[
-                'rounded truncate',
-                i === 0 ? 'h-2 bg-white/40 w-3/4' : 'h-1 bg-white/20 w-full',
+                'rounded-sm truncate',
+                i === 0 ? 'h-2 bg-white/40 w-2/3' : 'h-1.5 bg-white/10 w-full',
               ].join(' ')}
             />
           ))}
@@ -61,8 +61,8 @@ export default function SlideThumb({ slide, index, isSelected, onClick }: Props)
       </div>
 
       {/* Title + vertical badge */}
-      <div className="flex items-center gap-1.5">
-        <p className="text-[11px] font-medium text-gray-300 truncate leading-tight flex-1">
+      <div className="flex items-center gap-1.5 px-0.5">
+        <p className={`text-[11px] font-semibold truncate flex-1 transition-colors ${isSelected ? 'text-indigo-100' : 'text-gray-300'}`}>
           {slideLabel(slide, index)}
         </p>
         {slide.verticalSlides?.length ? (
@@ -74,8 +74,8 @@ export default function SlideThumb({ slide, index, isSelected, onClick }: Props)
           </span>
         ) : null}
       </div>
-      <p className="text-[10px] text-gray-500 truncate leading-tight">
-        {slideSubtitle(slide)}
+      <p className="text-[10px] text-gray-500 truncate px-0.5 mt-0.5">
+        {slideSubtitle(slide) || 'No elements'}
       </p>
     </button>
   );

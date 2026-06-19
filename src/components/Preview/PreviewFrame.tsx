@@ -102,33 +102,42 @@ export default function PreviewFrame() {
   }, [selectedSlideIndex]);
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Toolbar */}
-      <div className="flex items-center gap-2 px-3 h-8 bg-[#161b27] border-b border-white/10 flex-none">
-        <span className="text-xs text-gray-400">
-          Slide {selectedSlideIndex + 1} / {presentation.slides.length}
-        </span>
-        <div className="flex-1" />
-        <span className="text-xs text-gray-500">Scale:</span>
-        {(['fit', '100%', '75%'] as const).map((s) => (
-          <button
-            key={s}
-            onClick={() => setScale(s)}
-            className={`text-xs px-2 py-0.5 rounded transition-colors ${
-              scale === s
-                ? 'bg-indigo-600 text-white'
-                : 'text-gray-400 hover:text-gray-200 hover:bg-white/10'
-            }`}
-          >
-            {s}
-          </button>
-        ))}
+    <div className="flex flex-col h-full relative">
+      {/* Floating Toolbar inside the canvas area */}
+      <div className="absolute top-4 left-4 right-4 z-10 flex items-center justify-between pointer-events-none">
+        <div className="bg-surface-800/80 backdrop-blur border border-white/5 shadow-md px-3 py-1.5 rounded-full pointer-events-auto">
+          <span className="text-[11px] font-medium text-gray-400 tracking-wide">
+            Slide {selectedSlideIndex + 1} <span className="text-gray-600">/</span> {presentation.slides.length}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-1 bg-surface-800/80 backdrop-blur border border-white/5 shadow-md p-1 rounded-full pointer-events-auto">
+          {(['fit', '100%', '75%'] as const).map((s) => (
+            <button
+              key={s}
+              onClick={() => setScale(s)}
+              className={`text-[10px] font-medium px-3 py-1 rounded-full transition-all ${
+                scale === s
+                  ? 'bg-accent text-white shadow-sm shadow-accent/20'
+                  : 'text-gray-400 hover:text-gray-200 hover:bg-white/10'
+              }`}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* Iframe */}
-      <div className="flex-1 overflow-hidden flex items-center justify-center bg-[#090b10] p-4">
+      {/* Iframe Canvas */}
+      <div 
+        className="flex-1 overflow-hidden flex items-center justify-center bg-surface-900 p-12 relative"
+        style={{ 
+          backgroundImage: 'radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px)',
+          backgroundSize: '24px 24px'
+        }}
+      >
         <div
-          className="relative bg-black shadow-2xl"
+          className="relative shadow-2xl rounded-sm overflow-hidden border border-white/5 transition-all duration-300 ease-out"
           style={
             scale === 'fit'
               ? { width: '100%', maxWidth: '1280px', aspectRatio: '16/9' }

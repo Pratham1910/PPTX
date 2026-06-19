@@ -120,19 +120,19 @@ export default function InsertMediaModal({ onClose }: Props) {
       return;
     }
     if (url.trim() && !htmlContent) {
-      // External URL → plain iframe
+      // External URL → plain iframe placed as absolute element
       const el: EmbedElement = {
         id: uuid(), type: 'embed', embedType: 'iframe',
         url: url.trim(), allowInteraction: true,
-        position: { mode: 'absolute', x: 0, y: 0, width: 100, height: 100, zIndex: 1 },
+        position: { mode: 'absolute', x: 2, y: 2, width: 96, height: 90, zIndex: 1 },
       };
       addElement(selectedSlideIndex, el);
     } else {
-      // Local HTML file → srcdoc iframe
+      // Local HTML file → srcdoc iframe placed as absolute element
       const el: EmbedElement = {
         id: uuid(), type: 'embed', embedType: 'html',
         htmlContent, allowInteraction: true,
-        position: { mode: 'absolute', x: 0, y: 0, width: 100, height: 100, zIndex: 1 },
+        position: { mode: 'absolute', x: 2, y: 2, width: 96, height: 90, zIndex: 1 },
       };
       addElement(selectedSlideIndex, el);
     }
@@ -164,26 +164,8 @@ export default function InsertMediaModal({ onClose }: Props) {
     const trimmed = url.trim();
     if (!trimmed) { setError('Please enter a URL or pick a file.'); return; }
 
-    if (tab === 'image' || tab === 'svg') {
-      const isData = trimmed.startsWith('data:');
-      const isSvgFile = trimmed.endsWith('.svg') || trimmed.includes('.svg?') ||
-                        guessImageMime(trimmed) === 'image/svg+xml';
-
-      if (isSvgFile || tab === 'svg' && !isData && !trimmed.match(/\.(jpg|jpeg|png|gif|webp|avif)/)) {
-        // SVG URL → image element
-        if (!trimmed.startsWith('http') && !isData) {
-          // Treat non-image, non-data as an iframe embed
-          const el: EmbedElement = {
-            id: uuid(), type: 'embed', embedType: 'iframe',
-            url: trimmed, allowInteraction: true,
-            position: { mode: 'flow' },
-          };
-          addElement(selectedSlideIndex, el);
-          onClose();
-          return;
-        }
-      }
-
+    if (tab === 'image') {
+      // All images (including SVG files) go through asset → ImageElement
       const assetId = uuid();
       const mimeType = guessImageMime(trimmed);
       const filename = localFileName ?? trimmed.split('/').pop() ?? 'image';
@@ -197,9 +179,45 @@ export default function InsertMediaModal({ onClose }: Props) {
         alt: alt || 'Image',
         caption: caption || undefined,
         fit: 'contain',
-        position: { mode: 'flow' },
+        // Use absolute positioning so the image is immediately draggable and sized
+        position: { mode: 'absolute', x: 10, y: 15, width: 80, height: 65, zIndex: 1 },
       };
       addElement(selectedSlideIndex, el, asset);
+      onClose();
+
+    } else if (tab === 'svg') {
+      const isData = trimmed.startsWith('data:');
+      const isSvgMime = isData
+        ? trimmed.startsWith('data:image/svg')
+        : (trimmed.endsWith('.svg') || trimmed.includes('.svg?') || guessImageMime(trimmed) === 'image/svg+xml');
+
+      if (isSvgMime || isData) {
+        // SVG file/data URL → ImageElement (renders via <img>, supports SVG perfectly)
+        const assetId = uuid();
+        const asset: Asset = {
+          id: assetId, type: 'image', filename: localFileName ?? 'graphic.svg',
+          mimeType: 'image/svg+xml',
+          sizeBytes: 0, url: trimmed,
+          uploadedAt: new Date().toISOString(), metadata: {},
+        };
+        const el: ImageElement = {
+          id: uuid(), type: 'image', assetId,
+          alt: alt || 'SVG Graphic',
+          caption: caption || undefined,
+          fit: 'contain',
+          // Use absolute positioning so the SVG is immediately draggable and sized
+          position: { mode: 'absolute', x: 10, y: 15, width: 80, height: 65, zIndex: 1 },
+        };
+        addElement(selectedSlideIndex, el, asset);
+      } else {
+        // Non-SVG URL on SVG tab → treat as interactive embed (CodePen, Figma, etc.)
+        const el: EmbedElement = {
+          id: uuid(), type: 'embed', embedType: 'iframe',
+          url: trimmed, allowInteraction: true,
+          position: { mode: 'absolute', x: 5, y: 5, width: 90, height: 80, zIndex: 1 },
+        };
+        addElement(selectedSlideIndex, el);
+      }
       onClose();
 
     } else if (tab === 'video') {
@@ -217,17 +235,17 @@ export default function InsertMediaModal({ onClose }: Props) {
           id: uuid(), type: 'video', assetId,
           autoplay: false, loop: false, muted: false, controls: true,
           caption: caption || undefined,
-          position: { mode: 'flow' },
+          position: { mode: 'absolute', x: 5, y: 10, width: 90, height: 75, zIndex: 1 },
         };
         addElement(selectedSlideIndex, el, asset);
       } else {
-        const embed = isVideoEmbed(trimmed);
+        // External URL: store as-is; the renderer converts to embed URL on the fly
         const el: VideoElement = {
           id: uuid(), type: 'video',
-          url: embed ? toEmbedUrl(trimmed) : trimmed,
+          url: trimmed,
           autoplay: false, loop: false, muted: false, controls: true,
           caption: caption || undefined,
-          position: { mode: 'flow' },
+          position: { mode: 'absolute', x: 5, y: 10, width: 90, height: 75, zIndex: 1 },
         };
         addElement(selectedSlideIndex, el);
       }
@@ -252,7 +270,7 @@ export default function InsertMediaModal({ onClose }: Props) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="bg-[#161b27] border border-white/10 rounded-xl shadow-2xl w-[480px] overflow-hidden">
+      <div className="bg-[#161b27] modal-animate border border-white/10 rounded-xl shadow-2xl w-[480px] overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
           <h2 className="text-sm font-semibold text-white">Insert Media</h2>

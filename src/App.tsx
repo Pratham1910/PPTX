@@ -11,22 +11,22 @@ export default function App() {
   const isEditMode         = useEditorStore((s) => s.isEditMode);
 
   return (
-    <div className="flex flex-col h-screen bg-[#0f1117] overflow-hidden">
+    <div className="flex flex-col h-screen bg-surface-900 overflow-hidden text-gray-200">
       {isPresentationMode && <PresentationMode />}
       <Toolbar />
       <div className="flex flex-1 overflow-hidden">
         {/* Slide list — 200px fixed */}
-        <aside className="w-[200px] flex-none overflow-y-auto bg-[#161b27] border-r border-white/10">
+        <aside className="w-[200px] flex-none overflow-y-auto bg-surface-800 border-r border-white/5 shadow-sm z-0">
           <SlideList />
         </aside>
 
         {/* Centre panel — switches between live preview and edit canvas */}
-        <main className="flex-1 overflow-hidden flex flex-col bg-[#0f1117]">
+        <main className="flex-1 overflow-hidden flex flex-col bg-surface-900">
           {isEditMode ? <EditCanvas /> : <PreviewFrame />}
         </main>
 
         {/* Properties panel — 280px fixed */}
-        <aside className="w-[280px] flex-none overflow-y-auto bg-[#161b27] border-l border-white/10">
+        <aside className="w-[280px] flex-none overflow-y-auto bg-surface-800 border-l border-white/5 shadow-sm z-0">
           <PropertiesPanel />
         </aside>
       </div>

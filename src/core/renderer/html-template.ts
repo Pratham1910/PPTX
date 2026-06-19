@@ -29,6 +29,7 @@ import type { Presentation, RevealSettings } from '../schema.ts';
 import { generateThemeCss } from './theme-css.ts';
 import { renderAllSlides } from './slide-renderer.ts';
 import { escapeHtml } from './utils.ts';
+import { analyticsRuntime } from '../../utils/analytics-runtime.ts';
 
 // ─── CDN VERSIONS ────────────────────────────────────────────
 // Pinned to versions matching the bundled npm packages (reveal.js 6.x, mermaid 11.x)
@@ -78,6 +79,16 @@ export interface HtmlTemplateOptions {
    * /vendor/... resolve correctly inside blob: URL iframes.
    */
   baseHref?: string;
+  /**
+   * When set, the analytics runtime is injected into the exported HTML.
+   * Events are sent via navigator.sendBeacon() to this URL.
+   */
+  analyticsEndpoint?: string;
+  /**
+   * Override specific Reveal.js config values (merged on top of defaults).
+   * Used by video-export to disable controls/progress for recording.
+   */
+  overrideRevealConfig?: Partial<RevealSettings>;
 }
 
 /**
@@ -87,14 +98,20 @@ export function generateHtml(
   presentation: Presentation,
   options: HtmlTemplateOptions = {},
 ): string {
-  const { useCdn = true, embedAssets = false, editorMode = false, vendorUrls, baseHref } = options;
+  const {
+    useCdn = true, embedAssets = false, editorMode = false,
+    vendorUrls, baseHref, analyticsEndpoint, overrideRevealConfig,
+  } = options;
 
   const sectionsHtml = renderAllSlides(presentation, embedAssets);
   const themeCss     = generateThemeCss(presentation.theme);
   const [aw, ah]     = presentation.theme.aspectRatio.split(':').map(Number);
   const slideW       = 1920;
   const slideH       = Math.round((slideW / aw) * ah);
-  const revealConfig = buildRevealConfig(presentation.settings.revealjs, editorMode, slideW, slideH);
+  const mergedReveal = overrideRevealConfig
+    ? { ...presentation.settings.revealjs, ...overrideRevealConfig }
+    : presentation.settings.revealjs;
+  const revealConfig = buildRevealConfig(mergedReveal, editorMode, slideW, slideH);
   // Skip Google Fonts when local vendor URLs are provided — fonts are already
   // bundled into the editor app and the preview inherits the parent page's CSS.
   const fonts        = vendorUrls ? '' : buildGoogleFontLink(presentation.theme);
@@ -172,14 +189,23 @@ ${revealConfig}
 <script>
 ${quizRuntime(presentation)}
 </script>
-
+${analyticsEndpoint ? `
+<!-- Presentation Analytics runtime -->
+<script>
+${analyticsRuntime(
+  presentation.presentationId,
+  presentation.meta.title,
+  presentation.slides.length,
+  analyticsEndpoint,
+)}
+</script>` : ''}
 </body>
 </html>`;
 }
 
 // ─── REVEAL.JS CONFIG ────────────────────────────────────────
 
-function buildRevealConfig(cfg: RevealSettings, editorMode = false, slideW = 1920, slideH = 1080): string {
+function buildRevealConfig(cfg: RevealSettings | Partial<RevealSettings>, editorMode = false, slideW = 1920, slideH = 1080): string {
   const config = {
     width:          slideW,
     height:         slideH,

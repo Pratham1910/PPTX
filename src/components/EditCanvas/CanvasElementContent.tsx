@@ -98,10 +98,21 @@ export default function CanvasElementContent({ element, theme, assets, editing, 
           src={src}
           alt={el.alt ?? ''}
           draggable={false}
-          style={{ width: '100%', height: '100%', objectFit: el.fit ?? 'contain', display: 'block', pointerEvents: 'none' }}
+          style={{
+            // In absolute mode the container is sized, so we fill it.
+            // In flow mode we let the image use its natural size (capped to canvas width)
+            // so it doesn't explode to full-slide size.
+            width: element.position.mode === 'absolute' ? '100%' : 'auto',
+            height: element.position.mode === 'absolute' ? '100%' : 'auto',
+            maxWidth: '100%',
+            maxHeight: element.position.mode === 'absolute' ? '100%' : 360,
+            objectFit: el.fit ?? 'contain',
+            display: 'block',
+            pointerEvents: 'none',
+          }}
         />
       ) : (
-        <div style={{ width: '100%', height: '100%', minHeight: 120, background: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 6, color: theme.colors.muted, fontSize: 13 }}>
+        <div style={{ width: '100%', minHeight: 120, background: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 6, color: theme.colors.muted, fontSize: 13 }}>
           🖼 Image
         </div>
       );
@@ -109,11 +120,54 @@ export default function CanvasElementContent({ element, theme, assets, editing, 
 
     case 'video': {
       const el = element as VideoElement;
+
+      // Resolve URL — local asset takes priority, then the `url` field
+      const videoAsset = el.assetId ? assets.find((a) => a.id === el.assetId) : null;
+      const src = videoAsset?.url ?? el.url ?? '';
+
+      if (!src) {
+        // Nothing configured yet — show a placeholder
+        return (
+          <div style={{ width: '100%', height: '100%', minHeight: 100, background: '#000', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, color: theme.colors.muted, borderRadius: 4, fontSize: 13 }}>
+            <span style={{ fontSize: 28 }}>▶</span>
+            <span style={{ fontSize: 11 }}>No video source. Pick a file or paste a URL.</span>
+          </div>
+        );
+      }
+
+      // YouTube / Vimeo → iframe embed
+      const isEmbedUrl = src.includes('youtube.com/embed') || src.includes('player.vimeo.com') ||
+                         src.includes('youtube.com') || src.includes('youtu.be') || src.includes('vimeo.com');
+      if (isEmbedUrl) {
+        // Convert watch URLs to embed URLs on the fly
+        let embedSrc = src;
+        const ytMatch = src.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([A-Za-z0-9_-]{11})/);
+        if (ytMatch) embedSrc = `https://www.youtube.com/embed/${ytMatch[1]}${el.autoplay ? '?autoplay=1&mute=1' : ''}`;
+        const vmMatch = src.match(/vimeo\.com\/(\d+)/);
+        if (vmMatch) embedSrc = `https://player.vimeo.com/video/${vmMatch[1]}${el.autoplay ? '?autoplay=1&muted=1' : ''}`;
+
+        return (
+          <iframe
+            src={embedSrc}
+            style={{ width: '100%', height: '100%', border: 'none', display: 'block', minHeight: 200, borderRadius: 4 }}
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowFullScreen
+            title="Video embed"
+          />
+        );
+      }
+
+      // Direct video file (.mp4, .webm, data URL…)
       return (
-        <div style={{ width: '100%', height: '100%', minHeight: 100, background: '#000', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, color: theme.colors.muted, borderRadius: 4, fontSize: 13 }}>
-          <span style={{ fontSize: 28 }}>▶</span>
-          <span style={{ fontSize: 11, maxWidth: 240, textAlign: 'center', wordBreak: 'break-all' }}>{el.url}</span>
-        </div>
+        <video
+          src={src}
+          style={{ width: '100%', height: '100%', display: 'block', borderRadius: 4, background: '#000' }}
+          controls={el.controls}
+          autoPlay={el.autoplay}
+          loop={el.loop}
+          muted={el.muted || el.autoplay /* browsers require muted for autoplay */}
+          playsInline
+        />
       );
     }
 
@@ -214,13 +268,13 @@ export default function CanvasElementContent({ element, theme, assets, editing, 
 
     case 'embed': {
       const el = element as EmbedElement;
-      // HTML file embed — live iframe with srcdoc
+      // HTML file embed — live iframe with srcdoc (allow-scripts + WebGL)
       if (el.embedType === 'html' && el.htmlContent) {
         return (
           <iframe
             srcDoc={el.htmlContent}
-            sandbox="allow-scripts allow-same-origin allow-pointer-lock allow-popups"
-            style={{ width: '100%', height: '100%', border: 'none', display: 'block', minHeight: 200, borderRadius: 4 }}
+            sandbox="allow-scripts allow-same-origin allow-pointer-lock allow-popups allow-forms allow-modals"
+            style={{ width: '100%', height: '100%', border: 'none', display: 'block', minHeight: 200, borderRadius: 4, pointerEvents: 'auto' }}
             title="HTML Embed"
           />
         );
@@ -230,15 +284,18 @@ export default function CanvasElementContent({ element, theme, assets, editing, 
         return (
           <iframe
             src={el.url}
-            style={{ width: '100%', height: '100%', border: 'none', display: 'block', minHeight: 200, borderRadius: 4 }}
+            style={{ width: '100%', height: '100%', border: 'none', display: 'block', minHeight: 200, borderRadius: 4, pointerEvents: 'auto' }}
             title="Embed"
+            allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; xr-spatial-tracking"
             allowFullScreen
           />
         );
       }
       return (
-        <div style={{ width: '100%', height: '100%', minHeight: 120, background: 'rgba(255,255,255,0.04)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 6, color: theme.colors.muted, fontSize: 13, border: '1px dashed rgba(255,255,255,0.12)' }}>
-          <span style={{ fontSize: 22 }}>⬡</span> HTML Embed
+        <div style={{ width: '100%', height: '100%', minHeight: 120, background: 'rgba(255,255,255,0.04)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 6, color: theme.colors.muted, fontSize: 13, border: '1px dashed rgba(255,255,255,0.12)' }}>
+          <span style={{ fontSize: 28 }}>⬡</span>
+          <span>HTML / Embed</span>
+          <span style={{ fontSize: 11, opacity: 0.5 }}>Pick an HTML file or paste a URL to embed content</span>
         </div>
       );
     }

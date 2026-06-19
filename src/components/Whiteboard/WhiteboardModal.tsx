@@ -20,17 +20,30 @@ export default function WhiteboardModal({ snapshot, onSave, onClose }: Props) {
     try {
       const ids = [...editor.getCurrentPageShapeIds()];
       if (ids.length === 0) return '';
-      // tldraw 2.x getSvg API
-      const svgEl = await (editor as any).getSvg(ids, {
+
+      // tldraw v5.x API: getSvgString
+      const result = await (editor as any).getSvgString(ids, {
         background: false,
-        darkMode: editor.user.getIsDarkMode?.() ?? true,
         padding: 16,
       });
-      if (!svgEl) return '';
-      const svgStr = new XMLSerializer().serializeToString(svgEl);
+
+      // result may be { svg: string } or a plain string depending on version
+      const svgStr: string | undefined =
+        typeof result === 'string' ? result : result?.svg ?? result?.value;
+
+      if (!svgStr) return '';
       return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgStr)}`;
     } catch {
-      return '';
+      // Fallback: try getSvgElement (tldraw 2.x)
+      try {
+        const ids = [...editor.getCurrentPageShapeIds()];
+        const svgEl = await (editor as any).getSvg(ids, { background: false, padding: 16 });
+        if (!svgEl) return '';
+        const svgStr = new XMLSerializer().serializeToString(svgEl);
+        return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgStr)}`;
+      } catch {
+        return '';
+      }
     }
   }
 
@@ -39,7 +52,7 @@ export default function WhiteboardModal({ snapshot, onSave, onClose }: Props) {
     if (!editor) { onClose(); return; }
     setSaving(true);
     try {
-      const snap = editor.store.getSnapshot() as unknown as Record<string, unknown>;
+      const snap = editor.getSnapshot() as unknown as Record<string, unknown>;
       const svgDataUrl = await captureSvg(editor);
       onSave(snap, svgDataUrl);
     } finally {
@@ -126,7 +139,7 @@ export default function WhiteboardModal({ snapshot, onSave, onClose }: Props) {
             // Load existing drawing if snapshot is provided
             if (snapshot && Object.keys(snapshot).length > 0) {
               try {
-                editor.store.loadSnapshot(snapshot as any);
+                editor.loadSnapshot(snapshot as any);
               } catch {
                 // Corrupted or version-mismatched snapshot — start fresh
               }

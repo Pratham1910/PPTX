@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useEditorStore } from '../../store/useEditorStore.ts';
 import ElementWidget, { CANVAS_W, CANVAS_H } from './ElementWidget.tsx';
-import type { Slide, Theme } from '@/core/schema';
+import ContextMenu from '../ContextMenu/ContextMenu.tsx';
+import type { Slide, Theme, Element as PresentationElement } from '@/core/schema';
 
 function slideBackground(slide: Slide, theme: Theme): React.CSSProperties {
   const bg = slide.background;
@@ -53,11 +54,62 @@ export default function EditCanvas() {
     assets: presentation.assets,
   };
 
+  const [contextMenu, setContextMenu] = useState<{ x: number, y: number } | null>(null);
+
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (selectedElementIndex === null) return;
+    setContextMenu({ x: e.clientX, y: e.clientY });
+  };
+
+  const selectedElement = selectedElementIndex !== null ? slide.elements[selectedElementIndex] : null;
+
+  const handleDuplicate = () => {
+    if (!selectedElement) return;
+    const { addElement } = useEditorStore.getState();
+    const newEl = {
+      ...selectedElement,
+      id: crypto.randomUUID(),
+    };
+    if (newEl.position.mode === 'absolute') {
+      newEl.position = {
+        ...newEl.position,
+        x: (newEl.position.x || 0) + 2,
+        y: (newEl.position.y || 0) + 2,
+      };
+    }
+    addElement(selectedSlideIndex, newEl);
+  };
+
+  const handleBringForward = () => {
+    if (!selectedElement || selectedElement.position.mode !== 'absolute') return;
+    const { updateElement } = useEditorStore.getState();
+    updateElement(selectedSlideIndex, selectedElementIndex!, {
+      position: { ...selectedElement.position, zIndex: (selectedElement.position.zIndex || 1) + 1 }
+    } as Partial<PresentationElement>);
+  };
+
+  const handleSendBackward = () => {
+    if (!selectedElement || selectedElement.position.mode !== 'absolute') return;
+    const { updateElement } = useEditorStore.getState();
+    updateElement(selectedSlideIndex, selectedElementIndex!, {
+      position: { ...selectedElement.position, zIndex: Math.max(1, (selectedElement.position.zIndex || 1) - 1) }
+    } as Partial<PresentationElement>);
+  };
+
   return (
     <div
       ref={containerRef}
-      className="flex flex-1 items-center justify-center bg-[#090b10] overflow-hidden"
-      style={{ minHeight: 0 }}
+      className="flex flex-1 items-center justify-center bg-surface-900 overflow-hidden relative"
+      style={{ 
+        minHeight: 0,
+        backgroundImage: `
+          linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px)
+        `,
+        backgroundSize: '40px 40px',
+        backgroundPosition: 'center center'
+      }}
     >
       {/* Edit mode banner */}
       <div
@@ -83,12 +135,13 @@ export default function EditCanvas() {
             transform: `scale(${scale})`,
             transformOrigin: 'top left',
             overflow: 'hidden',
-            boxShadow: '0 0 0 1px rgba(255,255,255,0.08), 0 8px 32px rgba(0,0,0,0.5)',
+            boxShadow: '0 25px 50px -12px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.05)',
             fontFamily: `'${theme.typography.bodyFont}', system-ui, sans-serif`,
             color: theme.colors.foreground,
             ...bgStyle,
           }}
           onClick={() => selectElement(null)}
+          onContextMenu={handleContextMenu}
         >
           {/* Flow elements — stacked in their natural order */}
           <div
@@ -128,8 +181,45 @@ export default function EditCanvas() {
               />
             );
           })}
+
+          {/* Empty State Overlay */}
+          {slide.elements.length === 0 && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-5 pointer-events-none select-none">
+              <div className="w-20 h-20 rounded-full bg-white/5 border border-white/10 flex items-center justify-center mb-2 shadow-xl shadow-black/20">
+                <span className="text-4xl opacity-50 drop-shadow-lg">✨</span>
+              </div>
+              <h3 className="text-3xl font-bold tracking-tight text-gray-300 drop-shadow-md">Beautifully Empty</h3>
+              <p className="text-base text-gray-500 max-w-md text-center leading-relaxed">
+                This slide is waiting for your ideas. Insert text, media, or shapes from the right panel to get started.
+              </p>
+            </div>
+          )}
         </div>
       </div>
+
+      {contextMenu && selectedElementIndex !== null && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onClose={() => setContextMenu(null)}
+          items={[
+            { label: 'Duplicate', icon: '📋', onClick: handleDuplicate },
+            { divider: true, label: '', onClick: () => {} },
+            { label: 'Bring Forward', icon: '⬆️', onClick: handleBringForward },
+            { label: 'Send Backward', icon: '⬇️', onClick: handleSendBackward },
+            { divider: true, label: '', onClick: () => {} },
+            { 
+              label: 'Delete', 
+              icon: '🗑️', 
+              danger: true, 
+              onClick: () => {
+                const { deleteElement } = useEditorStore.getState();
+                deleteElement(selectedSlideIndex, selectedElementIndex);
+              } 
+            },
+          ]}
+        />
+      )}
     </div>
   );
 }

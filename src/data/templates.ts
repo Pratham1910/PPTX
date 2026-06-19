@@ -379,4 +379,160 @@ State exactly what learners will achieve.
 You have completed Module 1. Module 2 starts in the next section.
 `,
   },
+
+  // ── 7. PES IC Defence ────────────────────────────────────────
+  // Derived from the actual "PES IC_PPT TEMPLATE_ - Copy.PPTX" file.
+  // Colours, font (Trebuchet MS), and slide structure match the source deck.
+  {
+    id: 'pes-ic-defence',
+    name: 'PES IC Defence',
+    description: 'Official navy & blue defence / operator training template',
+    thumbnail: 'linear-gradient(135deg, #002060 0%, #003399 40%, #4472C4 75%, #ED7D31 100%)',
+    accent: '#4472C4',
+    theme: {
+      id: 'pes-ic-defence', name: 'PES IC Defence',
+      colors: {
+        background: '#ffffff',
+        foreground: '#000000',
+        primary:    '#4472C4',   // accent1 — corporate blue
+        secondary:  '#002060',   // dk2 — deep navy
+        accent:     '#ED7D31',   // accent2 — orange highlight
+        muted:      '#7f7f7f',
+        danger:     '#C00000',   // accent3
+        success:    '#375623',   // accent6 — dark green
+        warning:    '#FFC000',   // accent4 — amber
+        info:       '#5B9BD5',   // accent5 — light blue
+      },
+      typography: {
+        headingFont: 'Trebuchet MS',
+        bodyFont:    'Trebuchet MS',
+        monoFont:    'Courier New',
+        baseSizePx:  18,
+        scaleRatio:  1.25,
+      },
+      spacing: { slidePaddingX: 64, slidePaddingY: 48, elementGap: 16 },
+      borderRadius: 2,
+      aspectRatio: '16:9',
+    },
+    markdown: `# Operator and Maintainer Training
+### Project Name | Author Name | March 20XX
+<!-- background: #002060 -->
+
+Prepared by: [Author Name]
+
+Department: [Department Name]
+
+## Table of Contents
+<!-- background: #002060 -->
+
+1. System Introduction
+2. Technical Description
+3. Preparation for Use & Installation
+4. Maintenance Instructions
+
+## System Introduction
+### Scope
+
+Provide a brief description of the system and its intended operational use.
+
+- Primary users: Operators and maintenance personnel
+- Operational environment: [Describe environment]
+- System classification: [Unclassified / Restricted / etc.]
+
+## System Introduction
+### Purpose
+
+Describe the purpose and mission objectives the system is designed to fulfil.
+
+- Mission objective 1
+- Mission objective 2
+- Mission objective 3
+
+## System Introduction
+### Overall System Operation
+
+Describe how the complete system operates end-to-end.
+
+| Component | Function | Interface |
+|-----------|----------|-----------|
+| Subsystem A | [Description] | [Interface] |
+| Subsystem B | [Description] | [Interface] |
+| Subsystem C | [Description] | [Interface] |
+
+## Technical Description
+### Features
+
+List the key technical features of the system.
+
+- Feature 1 — [Description]
+- Feature 2 — [Description]
+- Feature 3 — [Description]
+- Feature 4 — [Description]
+
+## Technical Description
+### System Specifications
+
+| Parameter | Specification | Unit |
+|-----------|---------------|------|
+| Operating Voltage | [Value] | V |
+| Power Consumption | [Value] | W |
+| Weight | [Value] | kg |
+| Operating Temperature | [Range] | °C |
+| IP Rating | [Value] | — |
+
+## Preparation for Use & Installation
+### Pre-Installation Checks
+
+> [!IMPORTANT] Complete all pre-installation checks before powering on the system. Failure to do so may cause damage.
+
+1. Verify all components are present per the packing list
+2. Inspect for transit damage
+3. Check installation site meets environmental requirements
+4. Confirm power supply specifications match system requirements
+
+## Preparation for Use & Installation
+### Installation Procedure
+
+Step-by-step guide for field installation.
+
+1. **Site Preparation** — ensure mounting surface is level and secure
+2. **Mechanical Mounting** — secure unit using [specified hardware]
+3. **Cable Routing** — route cables away from heat sources
+4. **Electrical Connection** — connect power and signal cables per wiring diagram
+5. **Initial Power-On** — follow startup sequence in Section 4
+
+## Maintenance Instructions
+### Scheduled Maintenance
+
+| Maintenance Task | Interval | Performed By |
+|-----------------|----------|--------------|
+| Visual inspection | Daily | Operator |
+| Functional test | Weekly | Operator |
+| Calibration check | Monthly | Maintainer |
+| Full overhaul | Annually | Maintainer |
+
+## Maintenance Instructions
+### Fault Finding
+
+> [!WARNING] Isolate power before performing any corrective maintenance on the system.
+
+Common faults and corrective actions:
+
+- **Fault 1** — [Symptom]: [Corrective action]
+- **Fault 2** — [Symptom]: [Corrective action]
+- **Fault 3** — [Symptom]: [Corrective action]
+
+## Summary
+<!-- background: #002060 -->
+
+Key training takeaways:
+
+- Understand the system purpose and operational scope
+- Follow installation procedures precisely
+- Adhere to scheduled maintenance intervals
+- Report faults through the correct chain
+
+*[Organisation Name] — [Document Reference] — [Classification]*
+`,
+  },
 ];

@@ -8,6 +8,7 @@ import {
 } from '../../services/gitlab.ts';
 import type { GitLabConfig, GitLabFile } from '../../services/gitlab.ts';
 import { adocToMarkdown } from '../../core/parser/adoc-to-md.ts';
+import { SHOWCASE_PRESENTATION } from '../../data/showcase.ts';
 
 interface Props {
   onClose: () => void;
@@ -66,7 +67,7 @@ function groupByFolder(files: GitLabFile[]): FolderGroup[] {
 // ─────────────────────────────────────────────────────────────
 
 export default function GitLabModal({ onClose }: Props) {
-  const { gitlabConfig, setGitlabConfig, parseFromMarkdown } = useEditorStore();
+  const { gitlabConfig, setGitlabConfig, parseFromMarkdown, loadPresentation } = useEditorStore();
 
   // ── form ──────────────────────────────────────────────────
   const [form, setForm] = useState<GitLabConfig>(
@@ -206,7 +207,12 @@ export default function GitLabModal({ onClose }: Props) {
   }
 
   function handleDisconnect() {
+    // Clear the GitLab config from the store
     setGitlabConfig(null);
+    // Reset the presentation to the default showcase so the
+    // GitLab-sourced content is no longer visible after disconnect
+    loadPresentation(SHOWCASE_PRESENTATION);
+    // Reset local modal state
     setFiles([]);
     setSelectedPaths(new Set());
     setStep('connect');
@@ -262,7 +268,7 @@ export default function GitLabModal({ onClose }: Props) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="bg-[#161b27] border border-white/10 rounded-xl shadow-2xl w-[540px] max-h-[90vh] flex flex-col overflow-hidden">
+      <div className="bg-[#161b27] modal-animate border border-white/10 rounded-xl shadow-2xl w-[540px] max-h-[90vh] flex flex-col overflow-hidden">
 
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">

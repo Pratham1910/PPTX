@@ -47,7 +47,7 @@ export default function MarkdownImportModal({ onClose }: Props) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
-      <div className="bg-[#1e2433] border border-white/10 rounded-xl shadow-2xl w-[640px] max-h-[85vh] flex flex-col">
+      <div className="bg-[#1e2433] modal-animate border border-white/10 rounded-xl shadow-2xl w-[640px] max-h-[85vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
           <h2 className="text-sm font-semibold text-gray-100">Import Markdown</h2>

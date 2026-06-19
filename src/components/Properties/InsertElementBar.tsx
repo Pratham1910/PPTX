@@ -2,6 +2,7 @@ import { useEditorStore } from '../../store/useEditorStore.ts';
 import type {
   TextElement, HeadingElement, BulletListElement,
   CodeElement, CalloutElement, DividerElement, TableElement,
+  ChartElement, ShapeElement,
 } from '@/core/schema';
 
 function uid() { return crypto.randomUUID(); }
@@ -9,7 +10,7 @@ const flow = { mode: 'flow' as const };
 
 const ELEMENTS: Array<{
   icon: string; label: string;
-  make: () => TextElement | HeadingElement | BulletListElement | CodeElement | CalloutElement | DividerElement | TableElement;
+  make: () => any; // Relaxed type so it doesn't get crazy long
 }> = [
   {
     icon: 'T', label: 'Text',
@@ -91,6 +92,24 @@ const ELEMENTS: Array<{
       id: uid(), type: 'divider', orientation: 'horizontal', position: flow,
     } as DividerElement),
   },
+  {
+    icon: '📊', label: 'Chart',
+    make: () => ({
+      id: uid(), type: 'chart', chartType: 'bar', position: flow,
+      data: {
+        labels: ['Jan', 'Feb', 'Mar'],
+        datasets: [{ label: 'Sales', data: [10, 20, 30] }]
+      },
+      options: { showLegend: true, showGrid: true, showLabels: true, animated: false }
+    } as ChartElement),
+  },
+  {
+    icon: '⬛', label: 'Shape',
+    make: () => ({
+      id: uid(), type: 'shape', shape: 'rectangle', position: flow,
+      fill: '#6366f1', stroke: '#ffffff', strokeWidth: 0, opacity: 1
+    } as ShapeElement),
+  },
 ];
 
 export default function InsertElementBar() {
@@ -106,17 +125,20 @@ export default function InsertElementBar() {
 
   return (
     <div className="panel-section">
-      <p className="panel-section-title tracking-widest">Insert Element</p>
-      <div className="grid grid-cols-5 gap-1">
+      <p className="panel-section-title">
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M8 2v12M2 8h12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
+        Insert Element
+      </p>
+      <div className="grid grid-cols-3 gap-2">
         {ELEMENTS.map((def) => (
           <button
             key={def.label}
             title={def.label}
             onClick={() => insert(def.make as never)}
-            className="flex flex-col items-center justify-center gap-0.5 py-2 rounded bg-white/5 hover:bg-indigo-600/20 border border-white/10 hover:border-indigo-500/40 text-gray-300 hover:text-white transition-colors"
+            className="flex flex-col items-center justify-center gap-1.5 aspect-square rounded-xl bg-surface-900 border border-white/5 hover:border-accent/40 hover:bg-accent/10 hover:shadow-lg hover:shadow-accent/5 text-gray-400 hover:text-white transition-all shadow-sm"
           >
-            <span className="text-[11px] font-mono font-semibold leading-none">{def.icon}</span>
-            <span className="text-[8px] text-gray-500 leading-none truncate w-full text-center">{def.label}</span>
+            <span className="text-xl font-mono font-bold leading-none mb-0.5 drop-shadow-sm">{def.icon}</span>
+            <span className="text-[9px] font-semibold tracking-widest uppercase opacity-80">{def.label}</span>
           </button>
         ))}
       </div>
