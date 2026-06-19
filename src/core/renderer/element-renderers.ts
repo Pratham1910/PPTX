@@ -450,8 +450,19 @@ function renderShape(el: ShapeElement): string {
     case 'triangle':
       path = `<polygon points="50,0 100,100 0,100" />`;
       break;
+    case 'line':
+      path = `<line x1="0" y1="50" x2="100" y2="50" />`;
+      break;
+    case 'arrow':
+      path = `<polygon points="0,35 75,35 75,15 100,50 75,85 75,65 0,65" />`;
+      break;
+    case 'star':
+      path = `<polygon points="50,0 61,35 98,35 68,57 79,91 50,70 21,91 32,57 2,35 39,35" />`;
+      break;
+    case 'hexagon':
+      path = `<polygon points="25,0 75,0 100,50 75,100 25,100 0,50" />`;
+      break;
     default:
-      // Fallback for others
       path = `<rect x="0" y="0" width="100" height="100" />`;
   }
 
@@ -461,8 +472,9 @@ function renderShape(el: ShapeElement): string {
   </g>
 </svg>`;
 
+  const labelColor = el.style?.text?.color ?? (fill === 'transparent' ? '#000' : '#fff');
   const labelHtml = el.label
-    ? `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:${escapeHtml(stroke)};text-align:center;">${escapeHtml(el.label)}</div>`
+    ? `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:${escapeHtml(labelColor)};text-align:center;font-size:1em;padding:4px;">${escapeHtml(el.label)}</div>`
     : '';
 
   return `<div class="ppt-shape" style="position:relative;width:100%;height:100%;min-width:40px;min-height:40px;">

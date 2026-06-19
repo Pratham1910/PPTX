@@ -33,6 +33,10 @@ import type {
   BulletItem,
   ImageElement,
   TableElement,
+  ShapeElement,
+  TextStyle,
+  ElementAnimation,
+  EntranceAnimation,
   Asset,
   Theme,
 } from '@/core/schema';
@@ -62,6 +66,202 @@ function attr(el: Element | null, attribute: string): string {
   return el?.getAttribute(attribute) ?? '';
 }
 
+// ─── PPTX preset geometry → ShapeElement.shape map ───────────────────────────
+
+// rect/roundRect intentionally absent: they act as text-box containers too,
+// so we only promote them to ShapeElement when they have an explicit fill.
+const PRST_SHAPE_MAP: Partial<Record<string, ShapeElement['shape']>> = {
+  ellipse:              'circle',
+  oval:                 'circle',
+  triangle:             'triangle',
+  rtTriangle:           'triangle',
+  line:                 'line',
+  straightConnector1:   'line',
+  bentConnector2:       'line',
+  bentConnector3:       'line',
+  rightArrow:           'arrow',
+  leftArrow:            'arrow',
+  upArrow:              'arrow',
+  downArrow:            'arrow',
+  leftRightArrow:       'arrow',
+  bentArrow:            'arrow',
+  circularArrow:        'arrow',
+  star4:                'star',
+  star5:                'star',
+  star6:                'star',
+  star8:                'star',
+  star12:               'star',
+  star16:               'star',
+  hexagon:              'hexagon',
+};
+
+// rect/roundRect are only shapes when they carry visible fill
+const RECT_PRST = new Set(['rect', 'roundRect']);
+
+// ─── Colour helpers ───────────────────────────────────────────────────────────
+
+function extractSolidColor(
+  containerEl: Element | null,
+  theme?: RawTheme,
+): string | undefined {
+  if (!containerEl) return undefined;
+  const fill = containerEl.querySelector(':scope > solidFill, solidFill');
+  if (!fill) return undefined;
+
+  const srgb = fill.querySelector('srgbClr');
+  if (srgb) {
+    const v = srgb.getAttribute('val');
+    if (v) return '#' + v;
+  }
+  const scheme = fill.querySelector('schemeClr');
+  if (scheme && theme) {
+    switch (scheme.getAttribute('val')) {
+      case 'lt1': return theme.bg;      // Light 1 = background
+      case 'dk1': return theme.fg;      // Dark 1  = foreground/text
+      case 'lt2': return '#f1f5f9';     // Light 2 = near-white surface
+      case 'dk2': return theme.accent1; // Dark 2  = secondary accent
+      case 'accent1': case 'accent2': case 'accent3':
+      case 'accent4': case 'accent5': case 'accent6': return theme.accent1;
+    }
+  }
+  return undefined;
+}
+
+// ─── Slide-master default styles ─────────────────────────────────────────────
+
+interface MasterStyles {
+  titleSizePx?:  number;
+  titleFont?:    string;
+  titleColor?:   string;
+  bodySizePx?:   number;
+  bodyFont?:     string;
+  bodyColor?:    string;
+}
+
+function emuSzToPx(sz: string | null): number | undefined {
+  if (!sz) return undefined;
+  const v = parseInt(sz, 10);
+  return v > 0 ? Math.round((v / 100) * 1.333) : undefined;
+}
+
+function readDefRPr(
+  container: Element | null,
+  rawTheme: RawTheme,
+): Pick<MasterStyles, 'titleSizePx' | 'titleFont' | 'titleColor'> {
+  if (!container) return {};
+  const defRPr = container.querySelector('defRPr');
+  if (!defRPr) return {};
+  const px = emuSzToPx(defRPr.getAttribute('sz'));
+  const latin = defRPr.querySelector('latin');
+  const tf = latin?.getAttribute('typeface') ?? '';
+  const font = tf && !tf.startsWith('+') ? tf : undefined;
+  const color = extractSolidColor(defRPr, rawTheme);
+  return { titleSizePx: px, titleFont: font, titleColor: color };
+}
+
+async function extractMasterStyles(
+  zip: JSZip,
+  rawTheme: RawTheme,
+): Promise<MasterStyles> {
+  const result: MasterStyles = {};
+  try {
+    const masterFile = zip.file('ppt/slideMasters/slideMaster1.xml');
+    if (!masterFile) return result;
+    const xml = parseXml(await masterFile.async('string'));
+
+    const titleSection = xml.querySelector('txStyles titleStyle lvl1pPr');
+    const t = readDefRPr(titleSection, rawTheme);
+    if (t.titleSizePx)  result.titleSizePx = t.titleSizePx;
+    if (t.titleFont)    result.titleFont    = t.titleFont;
+    if (t.titleColor)   result.titleColor   = t.titleColor;
+
+    const bodySection = xml.querySelector('txStyles bodyStyle lvl1pPr');
+    const b = readDefRPr(bodySection, rawTheme);
+    if (b.titleSizePx)  result.bodySizePx  = b.titleSizePx;
+    if (b.titleFont)    result.bodyFont     = b.titleFont;
+    if (b.titleColor)   result.bodyColor    = b.titleColor;
+  } catch {
+    // ignore
+  }
+  return result;
+}
+
+// ─── Text style extraction ────────────────────────────────────────────────────
+
+function extractTextStyle(
+  txBody: Element,
+  theme?: RawTheme,
+  masterStyles?: MasterStyles,
+  phType?: string,
+): TextStyle | undefined {
+  const style: TextStyle = {};
+
+  // Alignment from first paragraph's <a:pPr algn="...">
+  const pPr = txBody.querySelector('p > pPr');
+  const algn = pPr?.getAttribute('algn');
+  if (algn === 'ctr')       style.align = 'center';
+  else if (algn === 'r')    style.align = 'right';
+  else if (algn === 'just') style.align = 'justify';
+
+  // Look for sz in multiple places (run → paragraph default → lstStyle → master)
+  // 1. First explicit run: <a:r><a:rPr sz="...">
+  const rPr = txBody.querySelector('r > rPr') ?? txBody.querySelector('rPr');
+  // 2. Paragraph default: <a:pPr><a:defRPr sz="...">
+  const defRPr = txBody.querySelector('p > pPr > defRPr');
+  // 3. List style level 1: <a:lstStyle><a:lvl1pPr><a:defRPr sz="...">
+  const lstRPr = txBody.querySelector('lstStyle lvl1pPr defRPr');
+
+  const szRaw = rPr?.getAttribute('sz')
+    ?? defRPr?.getAttribute('sz')
+    ?? lstRPr?.getAttribute('sz');
+
+  if (szRaw) {
+    const px = emuSzToPx(szRaw);
+    if (px) style.sizePx = px;
+  } else if (masterStyles) {
+    // Fall back to master title or body size based on placeholder type
+    const isTitle = phType === 'title' || phType === 'ctrTitle' || phType === 'subTitle';
+    const fallbackPx = isTitle ? masterStyles.titleSizePx : masterStyles.bodySizePx;
+    if (fallbackPx) style.sizePx = fallbackPx;
+  }
+
+  // Bold / italic from first rPr found
+  const anyRPr = rPr ?? defRPr ?? lstRPr;
+  if (anyRPr) {
+    if (anyRPr.getAttribute('b') === '1' || anyRPr.getAttribute('b') === 'true')
+      style.weight = 'bold';
+    if (anyRPr.getAttribute('i') === '1' || anyRPr.getAttribute('i') === 'true')
+      style.italic = true;
+  }
+
+  // Font family: run → defRPr → lstRPr → master fallback
+  const latinEl = rPr?.querySelector('latin')
+    ?? defRPr?.querySelector('latin')
+    ?? lstRPr?.querySelector('latin');
+  const typeface = latinEl?.getAttribute('typeface') ?? '';
+  if (typeface && !typeface.startsWith('+')) {
+    style.fontFamily = typeface;
+  } else if (masterStyles) {
+    const isTitle = phType === 'title' || phType === 'ctrTitle' || phType === 'subTitle';
+    const fallbackFont = isTitle ? masterStyles.titleFont : masterStyles.bodyFont;
+    if (fallbackFont) style.fontFamily = fallbackFont;
+  }
+
+  // Text color: run → master fallback
+  const runColor = extractSolidColor(rPr, theme)
+    ?? extractSolidColor(defRPr, theme)
+    ?? extractSolidColor(lstRPr, theme);
+  if (runColor) {
+    style.color = runColor;
+  } else if (masterStyles) {
+    const isTitle = phType === 'title' || phType === 'ctrTitle' || phType === 'subTitle';
+    const fallbackColor = isTitle ? masterStyles.titleColor : masterStyles.bodyColor;
+    if (fallbackColor) style.color = fallbackColor;
+  }
+
+  return Object.keys(style).length > 0 ? style : undefined;
+}
+
 // ─── Theme extraction ─────────────────────────────────────────────────────────
 
 interface RawTheme {
@@ -76,8 +276,8 @@ async function extractTheme(zip: JSZip): Promise<RawTheme> {
   const defaults: RawTheme = {
     fontHeading: 'Calibri',
     fontBody:    'Calibri',
-    bg:          '#0f1117',
-    fg:          '#ffffff',
+    bg:          '#ffffff',  // lt1 default = white
+    fg:          '#000000',  // dk1 default = black
     accent1:     '#4f46e5',
   };
   try {
@@ -99,9 +299,11 @@ async function extractTheme(zip: JSZip): Promise<RawTheme> {
     return {
       fontHeading: majorFont || defaults.fontHeading,
       fontBody:    minorFont || defaults.fontBody,
-      bg:          '#' + dk1,
-      fg:          '#' + lt1,
-      accent1:     '#' + acc1,
+      // lt1 = Light 1 = background (typically white/light)
+      // dk1 = Dark 1  = foreground/text (typically dark)
+      bg:      '#' + lt1,
+      fg:      '#' + dk1,
+      accent1: '#' + acc1,
     };
   } catch {
     return defaults;
@@ -113,8 +315,8 @@ function buildTheme(raw: RawTheme): Theme {
     id:   crypto.randomUUID(),
     name: 'Imported',
     colors: {
-      background: raw.bg,
-      foreground: raw.fg,
+      background: raw.bg,   // lt1 = the light background color
+      foreground: raw.fg,   // dk1 = the dark text color
       primary:    raw.accent1,
       secondary:  '#818cf8',
       accent:     '#c084fc',
@@ -243,6 +445,8 @@ function shapeToElements(
   allAssets: Asset[],
   dims: SlideDims,
   zIndex: number,
+  rawTheme?: RawTheme,
+  masterStyles?: MasterStyles,
 ): PresentationElement[] {
   const elements: PresentationElement[] = [];
   const position = extractPosition(shapeEl, dims, zIndex);
@@ -266,6 +470,56 @@ function shapeToElements(
       } as ImageElement);
     }
     return elements;
+  }
+
+  // ── Geometric shape (circle, arrow, star, …) — skip placeholders ─────────
+  // Placeholder shapes (<p:ph>) are content containers (title, body, etc.),
+  // not decorative shapes, so we skip shape detection for them.
+  const isPlaceholder = !!shapeEl.querySelector('ph');
+  const spPr    = shapeEl.querySelector('spPr');
+  const prstGeom = spPr?.querySelector('prstGeom');
+
+  if (prstGeom && !isPlaceholder) {
+    const prst   = prstGeom.getAttribute('prst') ?? '';
+    const mapped = PRST_SHAPE_MAP[prst];
+
+    // For rect/roundRect: only create a ShapeElement when there's a visible fill.
+    // Otherwise treat as a text-box container and fall through to text handling.
+    const spFill   = extractSolidColor(spPr, rawTheme);
+    const isRectLike = RECT_PRST.has(prst);
+    const hasNoFill  = !!spPr?.querySelector(':scope > noFill') || !!spPr?.querySelector('noFill');
+    const isVisualFill = !hasNoFill && !!spFill;
+
+    const shouldBeShape = mapped && (!isRectLike || isVisualFill);
+
+    if (shouldBeShape) {
+      const lnEl   = spPr?.querySelector('ln') ?? null;
+      const stroke  = extractSolidColor(lnEl, rawTheme);
+      const lnW     = parseInt(lnEl?.getAttribute('w') ?? '0', 10);
+      const strokeWidth = lnW > 0 ? Math.max(1, Math.round(lnW / 9525)) : undefined;
+
+      const txBody = shapeEl.querySelector('txBody');
+      const label  = txBody
+        ? Array.from(txBody.querySelectorAll('t')).map((t) => t.textContent ?? '').join('').trim() || undefined
+        : undefined;
+
+      // For rect/roundRect without a dedicated map entry, use 'rectangle'
+      const shapeType = mapped ?? (RECT_PRST.has(prst) ? 'rectangle' : undefined);
+      if (shapeType) {
+        elements.push({
+          id:          crypto.randomUUID(),
+          type:        'shape',
+          shape:       shapeType,
+          fill:        spFill ?? 'transparent',
+          stroke,
+          strokeWidth,
+          label,
+          position,
+        } as ShapeElement);
+        return elements;
+      }
+    }
+    // rect/roundRect without fill → fall through to text handling below
   }
 
   // ── Table ────────────────────────────────────────────────────────────────
@@ -299,9 +553,12 @@ function shapeToElements(
   const paras = Array.from(txBody.querySelectorAll('p')).map(parseParagraph);
   if (paras.length === 0 || paras.every((p) => !p.text.trim())) return elements;
 
-  // Detect placeholder type: title / ctrTitle → HeadingElement
+  // Placeholder type drives heading detection and master-style fallback
   const phType = shapeEl.querySelector('ph')?.getAttribute('type') ?? '';
   const isTitle = phType === 'title' || phType === 'ctrTitle';
+
+  const textStyleResult = extractTextStyle(txBody, rawTheme, masterStyles, phType);
+  const elStyle = textStyleResult ? { text: textStyleResult } : undefined;
 
   if (isTitle) {
     const headingText = paras.map((p) => p.text).join(' ').trim();
@@ -312,16 +569,15 @@ function shapeToElements(
         level:    1,
         content:  headingText,
         position,
+        style:    elStyle,
       } as HeadingElement);
     }
     return elements;
   }
 
-  // Check if any paragraph has a bullet marker → BulletListElement
   const hasBullets = paras.some((p) => p.isBullet);
 
   if (hasBullets || paras.length > 1) {
-    // Multi-paragraph or bulleted content → BulletList
     const items: BulletItem[] = paras
       .filter((p) => p.text.trim())
       .map((p) => ({
@@ -338,10 +594,10 @@ function shapeToElements(
         ordered:  false,
         items,
         position,
+        style:    elStyle,
       } as BulletListElement);
     }
   } else {
-    // Single paragraph non-bullet → TextElement or Heading
     const singleText = paras[0].text.trim();
     if (singleText) {
       elements.push({
@@ -350,6 +606,7 @@ function shapeToElements(
         content:       singleText,
         contentFormat: 'plain' as const,
         position,
+        style:         elStyle,
       } as TextElement);
     }
   }
@@ -359,21 +616,63 @@ function shapeToElements(
 
 // ─── Slide background colour ──────────────────────────────────────────────────
 
+function resolveSchemeColor(name: string, theme: RawTheme): string | undefined {
+  switch (name) {
+    case 'lt1': return theme.bg;      // Light 1 = background
+    case 'dk1': return theme.fg;      // Dark 1  = foreground
+    case 'lt2': return '#f1f5f9';
+    case 'dk2': return theme.accent1;
+    case 'accent1': case 'accent2': case 'accent3':
+    case 'accent4': case 'accent5': case 'accent6': return theme.accent1;
+  }
+  return undefined;
+}
+
 function parseBackground(slideXml: Document, theme: RawTheme): Slide['background'] {
-  // Try <p:bg><p:bgPr><a:solidFill><a:srgbClr val="XXXXXX">
-  const srgb = slideXml.querySelector('bg solidFill srgbClr');
+  const bg = slideXml.querySelector('bg');
+  if (!bg) return { type: 'color', color: theme.bg }; // no explicit bg → use theme background
+
+  // Explicit solid fill with a direct hex color
+  const srgb = bg.querySelector('solidFill srgbClr');
   if (srgb) {
     const val = srgb.getAttribute('val');
     if (val) return { type: 'color', color: '#' + val };
   }
-  // Try scheme colour dk1/lt1 references
-  const schemeClr = slideXml.querySelector('bg solidFill schemeClr');
+
+  // Solid fill with a scheme color reference
+  const schemeClr = bg.querySelector('solidFill schemeClr');
   if (schemeClr) {
-    const name = schemeClr.getAttribute('val') ?? '';
-    if (name === 'dk1') return { type: 'color', color: theme.bg };
-    if (name === 'lt1') return { type: 'color', color: theme.fg };
+    const resolved = resolveSchemeColor(schemeClr.getAttribute('val') ?? '', theme);
+    if (resolved) return { type: 'color', color: resolved };
   }
-  return { type: 'none' };
+
+  // <p:bgRef> — theme background preset reference with optional color override
+  // idx 1001+ = subtle, 1013+ = moderate, 1025+ = intense backgrounds
+  // The child schemeClr overrides the tint/shade of that preset
+  const bgRef = bg.querySelector('bgRef');
+  if (bgRef) {
+    const refScheme = bgRef.querySelector('schemeClr');
+    if (refScheme) {
+      const resolved = resolveSchemeColor(refScheme.getAttribute('val') ?? '', theme);
+      if (resolved) return { type: 'color', color: resolved };
+    }
+    const refSrgb = bgRef.querySelector('srgbClr');
+    if (refSrgb) {
+      const v = refSrgb.getAttribute('val');
+      if (v) return { type: 'color', color: '#' + v };
+    }
+    // idx 1000 = no background fill (transparent/default)
+    const idx = parseInt(bgRef.getAttribute('idx') ?? '1001', 10);
+    if (idx <= 1000) return { type: 'none' };
+    // Any other bgRef → use theme background
+    return { type: 'color', color: theme.bg };
+  }
+
+  // <p:bgPr><a:noFill> — explicitly no fill
+  if (bg.querySelector('noFill')) return { type: 'none' };
+
+  // Fallback: use theme background color
+  return { type: 'color', color: theme.bg };
 }
 
 // ─── Notes extraction ─────────────────────────────────────────────────────────
@@ -403,6 +702,129 @@ async function extractNotes(zip: JSZip, slideIndex: number): Promise<string> {
   } catch {
     return '';
   }
+}
+
+// ─── Animation parsing ───────────────────────────────────────────────────────
+// Maps PPTX <p:timing> to Map<spId, ElementAnimation>
+//
+// PPTX timing structure:
+//   timing > tnLst > par > cTn > childTnLst
+//     > seq[nodeType="mainSeq"] > childTnLst
+//       > par  (one per click / auto group)
+//         > … > cTn[presetClass, presetID, nodeType]
+//                 > … > spTgt[spId]
+
+// presetID → entrance effect (OOXML preset values)
+const PRESET_ENTRANCE: Partial<Record<number, EntranceAnimation['effect']>> = {
+  1:  'none',        // Appear
+  2:  'slide-up',    // Fly In (direction overridden by subtype below)
+  3:  'slide-up',    // Float In
+  4:  'fade',        // Split
+  5:  'fade',        // Wipe
+  10: 'fade',        // Fade
+  11: 'zoom',        // Swivel → zoom
+  12: 'bounce',      // Bounce
+  13: 'zoom',        // Zoom
+  22: 'zoom',        // Grow and Turn
+  24: 'flip-x',      // Flip
+  27: 'slide-up',    // Rise Up
+};
+
+// Fly In presetSubtype → direction
+const FLY_SUBTYPE: Partial<Record<number, EntranceAnimation['effect']>> = {
+  0:  'slide-up',    // from bottom
+  4:  'slide-right', // from left
+  8:  'slide-left',  // from right
+  16: 'slide-down',  // from top
+  6:  'slide-left',  // from bottom-right
+  10: 'slide-left',  // from top-right
+  12: 'slide-right', // from bottom-left
+  20: 'slide-right', // from top-left
+};
+
+// animEffect filter attribute → effect
+const FILTER_MAP: Record<string, EntranceAnimation['effect']> = {
+  fade:   'fade',
+  box:    'zoom',
+  zoom:   'zoom',
+  fly:    'slide-up',
+  wipe:   'fade',
+};
+
+function parseAnimations(slideXml: Document): Map<number, ElementAnimation> {
+  const result = new Map<number, ElementAnimation>();
+  const timing = slideXml.querySelector('timing');
+  if (!timing) return result;
+
+  // Find the mainSeq node which holds the ordered click groups
+  const mainSeq = timing.querySelector('seq > cTn[nodeType="mainSeq"], tnLst > par > cTn > childTnLst > seq > cTn');
+  const clickGroups = mainSeq
+    ? Array.from(mainSeq.querySelectorAll('childTnLst > par'))
+    : Array.from(timing.querySelectorAll('par'));
+
+  let fragIdx = 0;
+
+  for (const group of clickGroups) {
+    // Each group is one "click trigger" that may animate several shapes
+    const effectNodes = Array.from(group.querySelectorAll('cTn[presetClass]'));
+    let groupUsedFragment = false;
+
+    for (const cTn of effectNodes) {
+      const presetClass = cTn.getAttribute('presetClass') ?? '';
+      const presetID    = parseInt(cTn.getAttribute('presetID') ?? '0', 10);
+      const subtype     = parseInt(cTn.getAttribute('presetSubtype') ?? '0', 10);
+      const nodeType    = cTn.getAttribute('nodeType') ?? '';
+
+      // Target shape
+      const spTgt = cTn.querySelector('spTgt');
+      if (!spTgt) continue;
+      const spId = parseInt(spTgt.getAttribute('spId') ?? '0', 10);
+      if (!spId) continue;
+
+      // Duration: look inside immediate childTnLst for a cTn with dur
+      const innerCTn  = cTn.querySelector('childTnLst > par > cTn, childTnLst > set > cBhvr > cTn');
+      const animEffect = cTn.querySelector('animEffect');
+      const rawDur    = innerCTn?.getAttribute('dur') ?? cTn.getAttribute('dur') ?? '500';
+      const durationMs = rawDur === 'indefinite' ? 500 : Math.max(100, parseInt(rawDur, 10));
+
+      // click-effect → fragment; withEffect/afterEffect/auto → auto
+      const isClick = nodeType === 'clickEffect';
+      const trigger: EntranceAnimation['trigger'] = isClick ? 'fragment' : 'auto';
+
+      if (presetClass === 'entr') {
+        let effect: EntranceAnimation['effect'];
+
+        if (presetID === 1) {
+          effect = 'none'; // Appear — instant visibility, no visual motion
+        } else if (presetID === 2) {
+          effect = FLY_SUBTYPE[subtype] ?? 'slide-up'; // Fly In
+        } else {
+          // Try animEffect filter first (most reliable)
+          const filter = (animEffect?.getAttribute('filter') ?? '').toLowerCase().split('(')[0];
+          effect = FILTER_MAP[filter] ?? PRESET_ENTRANCE[presetID] ?? 'fade';
+        }
+
+        if (isClick) groupUsedFragment = true;
+
+        const entrance: EntranceAnimation = {
+          effect,
+          durationMs,
+          delayMs: 0,
+          easing: 'ease',
+          trigger,
+          ...(isClick ? { fragmentIndex: fragIdx } : {}),
+        };
+
+        const existing = result.get(spId);
+        result.set(spId, { ...existing, entrance });
+      }
+      // exit and emphasis could be added here in the future
+    }
+
+    if (groupUsedFragment) fragIdx++;
+  }
+
+  return result;
 }
 
 // ─── Slide dimensions ─────────────────────────────────────────────────────────
@@ -515,6 +937,7 @@ async function parseSlide(
   allAssets: Asset[],
   order: number,
   dims: SlideDims,
+  masterStyles: MasterStyles,
 ): Promise<Slide | null> {
   const slidePath = `ppt/slides/slide${slideIndex}.xml`;
   const slideFile = zip.file(slidePath);
@@ -523,11 +946,23 @@ async function parseSlide(
   const xml  = parseXml(await slideFile.async('string'));
   const rels = await parseSlideRels(zip, slideIndex);
 
+  // Parse animations before processing shapes so we can attach them
+  const animMap = parseAnimations(xml);
+
   // Collect elements from all shapes, passing zIndex = shape order for stacking
   const shapes = Array.from(xml.querySelectorAll('sp, pic, graphicFrame'));
   const elements: PresentationElement[] = [];
   for (let zi = 0; zi < shapes.length; zi++) {
-    const els = shapeToElements(shapes[zi], rels, imageAssets, allAssets, dims, zi);
+    const shape = shapes[zi];
+    // Shape ID from <p:nvSpPr><p:cNvPr id="N"> — used to look up animations
+    const spId = parseInt(shape.querySelector('cNvPr')?.getAttribute('id') ?? '0', 10);
+    const els  = shapeToElements(shape, rels, imageAssets, allAssets, dims, zi, rawTheme, masterStyles);
+
+    const anim = spId ? animMap.get(spId) : undefined;
+    if (anim) {
+      for (const el of els) el.animation = anim;
+    }
+
     elements.push(...els);
   }
 
@@ -580,7 +1015,11 @@ export async function pptxToPresentation(
   const imageAssets = await extractImages(zip);
 
   onProgress?.({ current: 3, total: 4, label: 'Parsing slides…' });
-  const [slideOrder, dims] = await Promise.all([getSlideOrder(zip), getSlideDimensions(zip)]);
+  const [slideOrder, dims, masterStyles] = await Promise.all([
+    getSlideOrder(zip),
+    getSlideDimensions(zip),
+    extractMasterStyles(zip, rawTheme),
+  ]);
 
   const allAssets: Asset[] = [];
   const slides: Slide[] = [];
@@ -588,7 +1027,7 @@ export async function pptxToPresentation(
   for (let i = 0; i < slideOrder.length; i++) {
     const slideIndex = slideOrder[i];
     onProgress?.({ current: i, total: slideOrder.length, label: `Parsing slide ${i + 1} of ${slideOrder.length}…` });
-    const slide = await parseSlide(zip, slideIndex, imageAssets, rawTheme, allAssets, i, dims);
+    const slide = await parseSlide(zip, slideIndex, imageAssets, rawTheme, allAssets, i, dims, masterStyles);
     if (slide) slides.push(slide);
   }
 
