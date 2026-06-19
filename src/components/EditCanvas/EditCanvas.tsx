@@ -111,17 +111,16 @@ export default function EditCanvas() {
         backgroundPosition: 'center center'
       }}
     >
-      {/* Edit mode banner */}
+      {/* Subtle hint */}
       <div
         style={{
           position: 'absolute', top: 44, left: 200, right: 280, zIndex: 40,
-          background: 'rgba(99,102,241,0.12)', borderBottom: '1px solid rgba(99,102,241,0.3)',
-          padding: '3px 12px', fontSize: 11, color: '#a5b4fc',
+          padding: '2px 12px', fontSize: 10, color: 'rgba(148,163,184,0.4)',
           display: 'flex', alignItems: 'center', gap: 8, pointerEvents: 'none',
+          letterSpacing: '0.03em',
         }}
       >
-        <span>✏️ Edit Mode</span>
-        <span style={{ opacity: 0.6 }}>Drag elements to move · Double-click text to edit · Drag handles to resize</span>
+        Click to select · Double-click to edit text · Drag to move
       </div>
 
       {/* Canvas wrapper — occupies exactly scaled size so it stays centred */}

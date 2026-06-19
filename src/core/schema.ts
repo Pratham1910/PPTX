@@ -411,6 +411,8 @@ export interface ElementPosition {
   width?: number;
   height?: number;
   zIndex?: number;
+  /** Clockwise rotation in degrees */
+  rotate?: number;
   /** Prevent accidental moves in the editor */
   locked?: boolean;
 }
@@ -421,14 +423,16 @@ export interface ElementPosition {
 
 export interface TextElement extends ElementBase {
   type: "text";
-  /** ProseMirror/TipTap JSON or plain string */
+  /** ProseMirror/TipTap JSON, plain string, or trusted HTML from PPTX parser */
   content: string | object;
-  contentFormat: "plain" | "prosemirror";
+  contentFormat: "plain" | "prosemirror" | "html";
 }
 
 export interface HeadingElement extends ElementBase {
   type: "heading";
   content: string;
+  /** 'html' = trusted HTML from PPTX parser with per-run inline styles */
+  contentFormat?: "plain" | "html";
   level: 1 | 2 | 3 | 4 | 5 | 6;
 }
 
@@ -441,7 +445,7 @@ export interface BulletListElement extends ElementBase {
 export interface BulletItem {
   id: string;
   content: string;
-  contentFormat: "plain" | "prosemirror";
+  contentFormat: "plain" | "prosemirror" | "html";
   /** 0-based nesting depth */
   level: number;
   /** Optional per-bullet entrance (for Reveal.js fragments) */

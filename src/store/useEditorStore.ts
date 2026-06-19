@@ -129,7 +129,7 @@ export const useEditorStore = create<EditorState & EditorActions>()(
       isDirty: false,
       userTemplates: [],
       isPresentationMode: false,
-      isEditMode: false,
+      isEditMode: true,
       gitlabConfig: null,
       analyticsEndpoint: null,
       past: [],

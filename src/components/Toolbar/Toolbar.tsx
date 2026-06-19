@@ -197,10 +197,11 @@ export default function Toolbar() {
         {/* ── Center: Core Modes & Tabs ── */}
         <div className="flex items-center justify-center gap-0.5 w-[40%] bg-surface-800/50 p-0.5 rounded-lg border border-white/5 shadow-inner">
           <button
-            className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-[11px] font-semibold transition-all ${isEditMode ? 'bg-surface-600 text-white shadow' : 'text-gray-400 hover:text-gray-200 hover:bg-white/5'}`}
+            title={isEditMode ? 'Switch to Preview' : 'Switch to Edit'}
+            className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-[11px] font-semibold transition-all ${isEditMode ? 'bg-accent/20 text-accent border border-accent/30' : 'bg-surface-600 text-white shadow'}`}
             onClick={() => isEditMode ? exitEditMode() : enterEditMode()}
           >
-            {EDIT_ICON} Edit
+            {isEditMode ? <>{EDIT_ICON} Editing</> : <>👁 Preview</>}
           </button>
           <button className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium text-gray-400 hover:text-gray-200 hover:bg-white/5 transition-all" onClick={() => setThemeOpen(true)}>
             🎨 Theme

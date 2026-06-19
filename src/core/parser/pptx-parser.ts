@@ -436,6 +436,150 @@ function parseParagraph(paraEl: Element): ParsedPara {
   return { text: rawText, level: lvl, isBullet: hasBullet };
 }
 
+// ─── Rich text HTML from PPTX runs ───────────────────────────────────────────
+
+function escT(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function buildRunHtml(runEl: Element): string {
+  const txt = runEl.querySelector('t')?.textContent ?? '';
+  if (!txt) return '';
+
+  const rPr = runEl.querySelector('rPr');
+  if (!rPr) return escT(txt);
+
+  const styles: string[] = [];
+  const sz = rPr.getAttribute('sz');
+  if (sz) {
+    const px = Math.round(parseInt(sz, 10) / 100 * 1.333);
+    if (px > 0) styles.push(`font-size:${px}px`);
+  }
+  if (rPr.getAttribute('b') === '1' || rPr.getAttribute('b') === 'true')
+    styles.push('font-weight:bold');
+  if (rPr.getAttribute('i') === '1' || rPr.getAttribute('i') === 'true')
+    styles.push('font-style:italic');
+  const u = rPr.getAttribute('u');
+  if (u && u !== 'none' && u !== 'sng') styles.push('text-decoration:underline');
+  if (u === 'sng') styles.push('text-decoration:underline');
+  if (rPr.getAttribute('strike') === 'sngStrike' || rPr.getAttribute('strike') === 'dblStrike')
+    styles.push('text-decoration:line-through');
+
+  const latin = rPr.querySelector('latin');
+  const tf = latin?.getAttribute('typeface') ?? '';
+  if (tf && !tf.startsWith('+')) styles.push(`font-family:'${tf}',system-ui,sans-serif`);
+
+  const srgb = rPr.querySelector('solidFill srgbClr');
+  const color = srgb?.getAttribute('val');
+  if (color) styles.push(`color:#${color}`);
+
+  if (styles.length === 0) return escT(txt);
+  return `<span style="${styles.join(';')}">${escT(txt)}</span>`;
+}
+
+function buildParaHtml(paraEl: Element): string {
+  return Array.from(paraEl.querySelectorAll('r')).map(buildRunHtml).join('');
+}
+
+/** Returns the paragraph content as HTML. Returns null if completely empty. */
+function buildRichContent(
+  txBody: Element,
+): { content: string; contentFormat: 'plain' | 'html' } {
+  const paras = Array.from(txBody.querySelectorAll('p'));
+  const richParas = paras.map(buildParaHtml).filter(Boolean);
+  if (richParas.length === 0) return { content: '', contentFormat: 'plain' };
+
+  // Check if any run carries inline styling
+  const hasRich = richParas.some((p) => p.includes('<span'));
+
+  if (!hasRich && richParas.length === 1)
+    return { content: richParas[0], contentFormat: 'plain' };
+
+  const html = richParas.length === 1
+    ? richParas[0]
+    : richParas.map((p) => `<p style="margin:0">${p}</p>`).join('');
+  return { content: html, contentFormat: 'html' };
+}
+
+// ─── Flatten grouped shapes ───────────────────────────────────────────────────
+
+/**
+ * Returns all concrete shapes (sp, pic, graphicFrame) inside a group,
+ * with their group-offset applied so positions are slide-relative.
+ *
+ * A group (<p:grpSp>) has its own <p:grpSpPr><a:xfrm> that maps the group's
+ * child coordinate space onto the slide. We apply that offset to each child.
+ */
+function flattenGroup(grpSp: Element, dims: SlideDims): Element[] {
+  // Read the group transform — maps child coords to slide coords
+  const grpXfrm = grpSp.querySelector(':scope > grpSpPr > xfrm');
+  const grpOff  = grpXfrm?.querySelector('off');
+  const grpExt  = grpXfrm?.querySelector('ext');
+  const chOff   = grpXfrm?.querySelector('chOff');
+  const chExt   = grpXfrm?.querySelector('chExt');
+
+  // Group origin and size on the slide
+  const gx = parseInt(grpOff?.getAttribute('x')  ?? '0', 10);
+  const gy = parseInt(grpOff?.getAttribute('y')  ?? '0', 10);
+  const gw = parseInt(grpExt?.getAttribute('cx') ?? '0', 10);
+  const gh = parseInt(grpExt?.getAttribute('cy') ?? '0', 10);
+  // Child coordinate origin and scale
+  const cx0 = parseInt(chOff?.getAttribute('x')  ?? '0', 10);
+  const cy0 = parseInt(chOff?.getAttribute('y')  ?? '0', 10);
+  const cw  = parseInt(chExt?.getAttribute('cx') ?? '1', 10) || 1;
+  const ch  = parseInt(chExt?.getAttribute('cy') ?? '1', 10) || 1;
+
+  const scaleX = gw / cw;
+  const scaleY = gh / ch;
+
+  // Proxy: wrap each child shape in a fake element that has its xfrm adjusted
+  const results: Element[] = [];
+
+  const directChildren = Array.from(grpSp.children);
+  for (const child of directChildren) {
+    const tag = child.localName;
+    if (tag === 'grpSp') {
+      // Nested group — recurse
+      results.push(...flattenGroup(child, dims));
+      continue;
+    }
+    if (tag !== 'sp' && tag !== 'pic' && tag !== 'graphicFrame') continue;
+
+    // Read child's own xfrm
+    const childXfrm = child.querySelector('spPr > xfrm') ?? child.querySelector('xfrm');
+    if (!childXfrm) {
+      results.push(child);
+      continue;
+    }
+    const cOff = childXfrm.querySelector('off');
+    const cExt = childXfrm.querySelector('ext');
+    if (!cOff || !cExt) { results.push(child); continue; }
+
+    const childX = parseInt(cOff.getAttribute('x') ?? '0', 10);
+    const childY = parseInt(cOff.getAttribute('y') ?? '0', 10);
+    const childW = parseInt(cExt.getAttribute('cx') ?? '0', 10);
+    const childH = parseInt(cExt.getAttribute('cy') ?? '0', 10);
+
+    // Transform to slide coordinates
+    const slideX = gx + (childX - cx0) * scaleX;
+    const slideY = gy + (childY - cy0) * scaleY;
+    const slideW = childW * scaleX;
+    const slideH = childH * scaleY;
+
+    // Clone the child and patch its xfrm values
+    const clone = child.cloneNode(true) as Element;
+    const cloneXfrm = clone.querySelector('spPr > xfrm') ?? clone.querySelector('xfrm');
+    if (cloneXfrm) {
+      cloneXfrm.querySelector('off')?.setAttribute('x', String(Math.round(slideX)));
+      cloneXfrm.querySelector('off')?.setAttribute('y', String(Math.round(slideY)));
+      cloneXfrm.querySelector('ext')?.setAttribute('cx', String(Math.round(slideW)));
+      cloneXfrm.querySelector('ext')?.setAttribute('cy', String(Math.round(slideH)));
+    }
+    results.push(clone);
+  }
+  return results;
+}
+
 // ─── Shape → AST elements ─────────────────────────────────────────────────────
 
 function shapeToElements(
@@ -560,6 +704,9 @@ function shapeToElements(
   const textStyleResult = extractTextStyle(txBody, rawTheme, masterStyles, phType);
   const elStyle = textStyleResult ? { text: textStyleResult } : undefined;
 
+  // Rich HTML content (preserves per-run bold/italic/color/size)
+  const rich = buildRichContent(txBody);
+
   if (isTitle) {
     const headingText = paras.map((p) => p.text).join(' ').trim();
     if (headingText) {
@@ -567,7 +714,7 @@ function shapeToElements(
         id:       crypto.randomUUID(),
         type:     'heading',
         level:    1,
-        content:  headingText,
+        content:  rich.content || headingText,
         position,
         style:    elStyle,
       } as HeadingElement);
@@ -578,14 +725,21 @@ function shapeToElements(
   const hasBullets = paras.some((p) => p.isBullet);
 
   if (hasBullets || paras.length > 1) {
+    // Build per-paragraph rich items
+    const paraEls = Array.from(txBody.querySelectorAll('p'));
     const items: BulletItem[] = paras
-      .filter((p) => p.text.trim())
-      .map((p) => ({
-        id:            crypto.randomUUID(),
-        content:       p.text,
-        contentFormat: 'plain' as const,
-        level:         p.level,
-      }));
+      .map((p, i) => {
+        if (!p.text.trim()) return null;
+        const paraHtml = buildParaHtml(paraEls[i]);
+        const hasRich  = paraHtml.includes('<span');
+        return {
+          id:            crypto.randomUUID(),
+          content:       hasRich ? paraHtml : p.text,
+          contentFormat: (hasRich ? 'html' : 'plain') as 'html' | 'plain',
+          level:         p.level,
+        };
+      })
+      .filter(Boolean) as BulletItem[];
 
     if (items.length > 0) {
       elements.push({
@@ -603,8 +757,8 @@ function shapeToElements(
       elements.push({
         id:            crypto.randomUUID(),
         type:          'text',
-        content:       singleText,
-        contentFormat: 'plain' as const,
+        content:       rich.content || singleText,
+        contentFormat: rich.contentFormat,
         position,
         style:         elStyle,
       } as TextElement);
@@ -628,9 +782,35 @@ function resolveSchemeColor(name: string, theme: RawTheme): string | undefined {
   return undefined;
 }
 
-function parseBackground(slideXml: Document, theme: RawTheme): Slide['background'] {
+function parseBackground(
+  slideXml: Document,
+  theme: RawTheme,
+  imageAssets?: Map<string, Asset>,
+  rels?: SlideRels,
+  allAssets?: Asset[],
+): Slide['background'] {
   const bg = slideXml.querySelector('bg');
   if (!bg) return { type: 'color', color: theme.bg }; // no explicit bg → use theme background
+
+  // Background image: <p:bgPr><a:blipFill>
+  const blipFill = bg.querySelector('bgPr blipFill');
+  if (blipFill && imageAssets && rels) {
+    const rId = blipFill.querySelector('blip')?.getAttribute('r:embed')
+             ?? blipFill.querySelector('blip')?.getAttribute('embed') ?? '';
+    const imgPath = rels.images.get(rId);
+    const asset   = imgPath ? imageAssets.get(imgPath) : undefined;
+    if (asset) {
+      allAssets?.push(asset);
+      return {
+        type:  'image',
+        image: {
+          assetId:  asset.id,
+          size:     'cover',
+          position: 'center center',
+        },
+      };
+    }
+  }
 
   // Explicit solid fill with a direct hex color
   const srgb = bg.querySelector('solidFill srgbClr');
@@ -874,6 +1054,10 @@ function extractPosition(
 
   if (cx <= 0 || cy <= 0) return { mode: 'flow' };
 
+  // OOXML rotation is in 100,000ths of a degree, clockwise
+  const rotRaw = parseInt(xfrm.getAttribute('rot') ?? '0', 10);
+  const rotate = rotRaw !== 0 ? rotRaw / 100000 : undefined;
+
   return {
     mode:   'absolute',
     x:      Math.max(0, (x  / dims.w) * 100),
@@ -881,6 +1065,7 @@ function extractPosition(
     width:  Math.min(100, (cx / dims.w) * 100),
     height: Math.min(100, (cy / dims.h) * 100),
     zIndex,
+    ...(rotate != null ? { rotate } : {}),
   };
 }
 
@@ -949,12 +1134,19 @@ async function parseSlide(
   // Parse animations before processing shapes so we can attach them
   const animMap = parseAnimations(xml);
 
-  // Collect elements from all shapes, passing zIndex = shape order for stacking
-  const shapes = Array.from(xml.querySelectorAll('sp, pic, graphicFrame'));
+  // Collect shapes: direct sp/pic/graphicFrame + shapes inside <p:grpSp> groups
+  const directShapes = Array.from(xml.querySelectorAll(
+    'spTree > sp, spTree > pic, spTree > graphicFrame',
+  ));
+  const groupShapes: Element[] = [];
+  for (const grp of Array.from(xml.querySelectorAll('spTree > grpSp'))) {
+    groupShapes.push(...flattenGroup(grp, dims));
+  }
+  const allShapes = [...directShapes, ...groupShapes];
+
   const elements: PresentationElement[] = [];
-  for (let zi = 0; zi < shapes.length; zi++) {
-    const shape = shapes[zi];
-    // Shape ID from <p:nvSpPr><p:cNvPr id="N"> — used to look up animations
+  for (let zi = 0; zi < allShapes.length; zi++) {
+    const shape = allShapes[zi];
     const spId = parseInt(shape.querySelector('cNvPr')?.getAttribute('id') ?? '0', 10);
     const els  = shapeToElements(shape, rels, imageAssets, allAssets, dims, zi, rawTheme, masterStyles);
 
@@ -969,8 +1161,8 @@ async function parseSlide(
   // Slide title (from the first heading element, or empty)
   const titleEl = elements.find((e) => e.type === 'heading') as HeadingElement | undefined;
 
-  // Background
-  const background = parseBackground(xml, rawTheme);
+  // Background — pass rels + imageAssets so image backgrounds can be extracted
+  const background = parseBackground(xml, rawTheme, imageAssets, rels, allAssets);
 
   // Speaker notes
   const notes = await extractNotes(zip, slideIndex);

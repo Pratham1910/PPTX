@@ -69,7 +69,7 @@ export function renderElement(el: Element, ctx: RenderContext): string {
   // Absolute-positioned elements: wrap in a positioned overlay div.
   // Coordinates are percentages of the slide canvas (same units as the editor).
   if (el.position.mode === 'absolute') {
-    const { x = 0, y = 0, width, height, zIndex = 1 } = el.position;
+    const { x = 0, y = 0, width, height, zIndex = 1, rotate } = el.position;
     const style = [
       'position:absolute',
       `left:${x.toFixed(3)}%`,
@@ -77,6 +77,8 @@ export function renderElement(el: Element, ctx: RenderContext): string {
       width  != null ? `width:${width.toFixed(3)}%`   : 'width:auto',
       height != null ? `height:${height.toFixed(3)}%` : '',
       `z-index:${zIndex}`,
+      rotate ? `transform:rotate(${rotate.toFixed(2)}deg)` : '',
+      rotate ? 'transform-origin:center center' : '',
       'overflow:visible',
       'pointer-events:auto',
     ].filter(Boolean).join(';');
@@ -139,12 +141,16 @@ function buildTextStyleAttr(style?: ElementStyle): string {
 // ─── TEXT ────────────────────────────────────────────────────
 
 function renderText(el: TextElement): string {
-  const text =
-    typeof el.content === 'string'
-      ? escapeHtmlPreserveBreaks(el.content)
-      : JSON.stringify(el.content); // ProseMirror JSON — serialiser TBD
+  let body: string;
+  if (el.contentFormat === 'html' && typeof el.content === 'string') {
+    body = el.content; // trusted HTML from PPTX parser — already escaped per-run
+  } else if (typeof el.content === 'string') {
+    body = escapeHtmlPreserveBreaks(el.content);
+  } else {
+    body = JSON.stringify(el.content);
+  }
   const styleAttr = buildTextStyleAttr(el.style);
-  return `<p${styleAttr}>${text}</p>`;
+  return `<p${styleAttr}>${body}</p>`;
 }
 
 // ─── HEADING ─────────────────────────────────────────────────
@@ -152,7 +158,8 @@ function renderText(el: TextElement): string {
 function renderHeading(el: HeadingElement): string {
   const tag = `h${el.level}`;
   const styleAttr = buildTextStyleAttr(el.style);
-  return `<${tag}${styleAttr}>${escapeHtml(el.content)}</${tag}>`;
+  const body = el.contentFormat === 'html' ? el.content : escapeHtml(el.content);
+  return `<${tag}${styleAttr}>${body}</${tag}>`;
 }
 
 // ─── BULLET LIST ─────────────────────────────────────────────
@@ -167,7 +174,8 @@ function renderBulletList(el: BulletListElement): string {
             item.animation.entrance.effect === 'none' ? 'fade-in' : `fade-${item.animation.entrance.effect.replace('slide-', '')}`,
           )
         : '';
-      return `<li class="level-${item.level}"${fragmentAttr}>${escapeHtml(item.content)}</li>`;
+      const itemBody = item.contentFormat === 'html' ? item.content : escapeHtml(item.content);
+      return `<li class="level-${item.level}"${fragmentAttr}>${itemBody}</li>`;
     })
     .join('\n');
   return `<${tag}>\n${items}\n</${tag}>`;

@@ -1,11 +1,11 @@
 import { useEffect, useRef } from 'react';
 import type {
-  Element as PEl, Theme, Asset,
+  Element as PEl, Theme, Asset, ElementStyle,
   TextElement, HeadingElement, BulletListElement,
   ImageElement, VideoElement, CodeElement,
   CalloutElement, TableElement, DiagramElement,
   QuizElement, ButtonElement, DividerElement,
-  EmbedElement, WhiteboardElement,
+  EmbedElement, WhiteboardElement, ShapeElement,
 } from '@/core/schema';
 
 interface Props {
@@ -37,53 +37,118 @@ function InlineEditable({
   );
 }
 
+// Strip HTML tags to get plain text for editing
+function stripHtml(html: string): string {
+  return html.replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ');
+}
+
+// Build React CSS from element style metadata (used when contentFormat is plain)
+function styleFromMeta(style?: ElementStyle, fallback?: React.CSSProperties): React.CSSProperties {
+  if (!style?.text) return fallback ?? {};
+  const ts = style.text;
+  const wmap: Record<string, number> = { normal: 400, medium: 500, semibold: 600, bold: 700 };
+  return {
+    ...(fallback ?? {}),
+    ...(ts.fontFamily ? { fontFamily: `'${ts.fontFamily}', system-ui, sans-serif` } : {}),
+    ...(ts.sizePx     ? { fontSize: ts.sizePx }       : {}),
+    ...(ts.color      ? { color: ts.color }            : {}),
+    ...(ts.weight     ? { fontWeight: wmap[ts.weight] ?? ts.weight } : {}),
+    ...(ts.italic     ? { fontStyle: 'italic' }        : {}),
+    ...(ts.align      ? { textAlign: ts.align as React.CSSProperties['textAlign'] } : {}),
+    ...(ts.lineHeight ? { lineHeight: ts.lineHeight }  : {}),
+  };
+}
+
 // ─────────────────────────────────────────────────────────────
 
 export default function CanvasElementContent({ element, theme, assets, editing, onEditDone }: Props) {
-  const fg  = theme.colors.foreground;
-  const pri = theme.colors.primary;
+  const fg   = theme.colors.foreground;
+  const pri  = theme.colors.primary;
   const mono = `'${theme.typography.monoFont}', 'Courier New', monospace`;
-  const heading = `'${theme.typography.headingFont}', system-ui, sans-serif`;
+  const headingFont = `'${theme.typography.headingFont}', system-ui, sans-serif`;
+  const bodyFont    = `'${theme.typography.bodyFont}', system-ui, sans-serif`;
+
+  // Compute typographic scale to match preview (theme-css.ts: --ppt-text-* custom props)
+  const b = theme.typography.baseSizePx;
+  const r = theme.typography.scaleRatio;
+  const textBase = b;
+  const textLg   = b * r;
+  const textXl   = b * r ** 2;
+  const text2xl  = b * r ** 3;
+  const text3xl  = b * r ** 4;
+  // h1=3xl, h2=2xl, h3=xl, h4=lg, h5/h6=base
+  const hSizes = [text3xl, text2xl, textXl, textLg, textBase, textBase];
 
   switch (element.type) {
 
     case 'text': {
       const el = element as TextElement;
       const val = String(el.content);
-      if (editing) return <InlineEditable value={val} onDone={onEditDone} style={{ fontSize: 20, color: fg, lineHeight: 1.6 }} />;
-      return <p style={{ margin: 0, fontSize: 20, color: fg, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{val}</p>;
+      const isHtml = el.contentFormat === 'html';
+      const baseStyle = { fontFamily: bodyFont, fontSize: textBase, color: fg, lineHeight: 1.6 };
+
+      if (editing) {
+        const editVal = isHtml ? stripHtml(val) : val;
+        return <InlineEditable value={editVal} onDone={onEditDone} style={styleFromMeta(el.style, baseStyle)} />;
+      }
+
+      if (isHtml) {
+        return (
+          <div
+            style={{ margin: 0, lineHeight: 1.4, overflow: 'hidden', width: '100%', fontFamily: bodyFont }}
+            dangerouslySetInnerHTML={{ __html: val }}
+          />
+        );
+      }
+
+      return <p style={{ margin: 0, whiteSpace: 'pre-wrap', ...styleFromMeta(el.style, baseStyle) }}>{val}</p>;
     }
 
     case 'heading': {
       const el = element as HeadingElement;
-      const sizes = [56, 44, 34, 26, 21, 18];
-      const sz = sizes[(el.level ?? 1) - 1] ?? 28;
-      const col = el.level <= 2 ? pri : fg;
+      const isHtml = el.contentFormat === 'html';
+      const lvl = el.level ?? 1;
+      const sz = hSizes[lvl - 1] ?? textBase;
+      const col = lvl <= 2 ? pri : fg;
+      const baseStyle = { margin: 0, fontSize: sz, color: col, fontFamily: headingFont, lineHeight: 1.2, fontWeight: 700 as const };
+
       if (editing) {
+        const editVal = isHtml ? stripHtml(el.content) : el.content;
         return (
           <InlineEditable
-            value={el.content}
+            value={editVal}
             onDone={onEditDone}
-            tag={`h${el.level}` as 'div'}
-            style={{ margin: 0, fontSize: sz, color: col, fontFamily: heading, lineHeight: 1.2, fontWeight: 700 }}
+            tag={`h${lvl}` as 'div'}
+            style={styleFromMeta(el.style, baseStyle)}
           />
         );
       }
-      const Tag = `h${el.level ?? 1}` as 'h1';
-      return (
-        <Tag style={{ margin: 0, fontSize: sz, color: col, fontFamily: heading, lineHeight: 1.2, fontWeight: 700 }}>
-          {el.content}
-        </Tag>
-      );
+
+      if (isHtml) {
+        return (
+          <div
+            style={{ margin: 0, lineHeight: 1.2, fontFamily: headingFont, overflow: 'hidden', width: '100%' }}
+            dangerouslySetInnerHTML={{ __html: el.content }}
+          />
+        );
+      }
+
+      const hStyle = styleFromMeta(el.style, baseStyle);
+      const Tag = `h${lvl}` as 'h1';
+      return <Tag style={hStyle}>{el.content}</Tag>;
     }
 
     case 'bullet-list': {
       const el = element as BulletListElement;
       const Tag = el.ordered ? 'ol' : 'ul';
       return (
-        <Tag style={{ margin: 0, paddingLeft: 28, color: fg, fontSize: 19, lineHeight: 1.7 }}>
+        <Tag style={{ margin: 0, paddingLeft: '1.5em', color: fg, fontSize: textBase, lineHeight: 1.5, fontFamily: bodyFont }}>
           {el.items.map((item) => (
-            <li key={item.id} style={{ marginBottom: 4 }}>{String(item.content)}</li>
+            <li key={item.id} style={{ marginBottom: '0.4em' }}>
+              {item.contentFormat === 'html'
+                ? <span dangerouslySetInnerHTML={{ __html: String(item.content) }} />
+                : String(item.content)}
+            </li>
           ))}
         </Tag>
       );
@@ -99,9 +164,6 @@ export default function CanvasElementContent({ element, theme, assets, editing, 
           alt={el.alt ?? ''}
           draggable={false}
           style={{
-            // In absolute mode the container is sized, so we fill it.
-            // In flow mode we let the image use its natural size (capped to canvas width)
-            // so it doesn't explode to full-slide size.
             width: element.position.mode === 'absolute' ? '100%' : 'auto',
             height: element.position.mode === 'absolute' ? '100%' : 'auto',
             maxWidth: '100%',
@@ -120,13 +182,10 @@ export default function CanvasElementContent({ element, theme, assets, editing, 
 
     case 'video': {
       const el = element as VideoElement;
-
-      // Resolve URL — local asset takes priority, then the `url` field
       const videoAsset = el.assetId ? assets.find((a) => a.id === el.assetId) : null;
       const src = videoAsset?.url ?? el.url ?? '';
 
       if (!src) {
-        // Nothing configured yet — show a placeholder
         return (
           <div style={{ width: '100%', height: '100%', minHeight: 100, background: '#000', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8, color: theme.colors.muted, borderRadius: 4, fontSize: 13 }}>
             <span style={{ fontSize: 28 }}>▶</span>
@@ -135,17 +194,13 @@ export default function CanvasElementContent({ element, theme, assets, editing, 
         );
       }
 
-      // YouTube / Vimeo → iframe embed
-      const isEmbedUrl = src.includes('youtube.com/embed') || src.includes('player.vimeo.com') ||
-                         src.includes('youtube.com') || src.includes('youtu.be') || src.includes('vimeo.com');
+      const isEmbedUrl = src.includes('youtube.com') || src.includes('youtu.be') || src.includes('vimeo.com');
       if (isEmbedUrl) {
-        // Convert watch URLs to embed URLs on the fly
         let embedSrc = src;
         const ytMatch = src.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([A-Za-z0-9_-]{11})/);
         if (ytMatch) embedSrc = `https://www.youtube.com/embed/${ytMatch[1]}${el.autoplay ? '?autoplay=1&mute=1' : ''}`;
         const vmMatch = src.match(/vimeo\.com\/(\d+)/);
         if (vmMatch) embedSrc = `https://player.vimeo.com/video/${vmMatch[1]}${el.autoplay ? '?autoplay=1&muted=1' : ''}`;
-
         return (
           <iframe
             src={embedSrc}
@@ -157,7 +212,6 @@ export default function CanvasElementContent({ element, theme, assets, editing, 
         );
       }
 
-      // Direct video file (.mp4, .webm, data URL…)
       return (
         <video
           src={src}
@@ -165,7 +219,7 @@ export default function CanvasElementContent({ element, theme, assets, editing, 
           controls={el.controls}
           autoPlay={el.autoplay}
           loop={el.loop}
-          muted={el.muted || el.autoplay /* browsers require muted for autoplay */}
+          muted={el.muted || el.autoplay}
           playsInline
         />
       );
@@ -224,6 +278,61 @@ export default function CanvasElementContent({ element, theme, assets, editing, 
       );
     }
 
+    case 'shape': {
+      const el = element as ShapeElement;
+      const fill = el.fill ?? 'transparent';
+      const stroke = el.stroke ?? 'transparent';
+      const strokeW = el.strokeWidth ?? 0;
+      const opacity = el.opacity ?? 1;
+
+      let path = '';
+      switch (el.shape) {
+        case 'rectangle':
+          path = `<rect x="0" y="0" width="100" height="100" />`; break;
+        case 'rounded-rectangle':
+          path = `<rect x="0" y="0" width="100" height="100" rx="10" ry="10" />`; break;
+        case 'circle':
+        case 'ellipse':
+          path = `<ellipse cx="50" cy="50" rx="50" ry="50" />`; break;
+        case 'triangle':
+          path = `<polygon points="50,0 100,100 0,100" />`; break;
+        case 'line':
+          path = `<line x1="0" y1="50" x2="100" y2="50" />`; break;
+        case 'arrow':
+          path = `<polygon points="0,35 75,35 75,15 100,50 75,85 75,65 0,65" />`; break;
+        case 'star':
+          path = `<polygon points="50,0 61,35 98,35 68,57 79,91 50,70 21,91 32,57 2,35 39,35" />`; break;
+        case 'hexagon':
+          path = `<polygon points="25,0 75,0 100,50 75,100 25,100 0,50" />`; break;
+        default:
+          path = `<rect x="0" y="0" width="100" height="100" />`;
+      }
+
+      const labelColor = el.style?.text?.color ?? (fill === 'transparent' ? '#000' : '#fff');
+
+      return (
+        <div style={{ position: 'relative', width: '100%', height: '100%', minWidth: 40, minHeight: 40 }}>
+          <svg
+            viewBox="0 0 100 100"
+            preserveAspectRatio="none"
+            style={{ width: '100%', height: '100%', display: 'block', opacity }}
+            dangerouslySetInnerHTML={{
+              __html: `<g fill="${fill}" stroke="${stroke}" stroke-width="${strokeW}">${path}</g>`,
+            }}
+          />
+          {el.label && (
+            <div style={{
+              position: 'absolute', inset: 0,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: labelColor, textAlign: 'center', fontSize: '1em', padding: 4,
+            }}>
+              {el.label}
+            </div>
+          )}
+        </div>
+      );
+    }
+
     case 'diagram': {
       const el = element as DiagramElement;
       return (
@@ -268,7 +377,6 @@ export default function CanvasElementContent({ element, theme, assets, editing, 
 
     case 'embed': {
       const el = element as EmbedElement;
-      // HTML file embed — live iframe with srcdoc (allow-scripts + WebGL)
       if (el.embedType === 'html' && el.htmlContent) {
         return (
           <iframe
@@ -279,7 +387,6 @@ export default function CanvasElementContent({ element, theme, assets, editing, 
           />
         );
       }
-      // URL iframe
       if ((el.embedType === 'iframe' || el.embedType === 'pdf') && el.url) {
         return (
           <iframe
@@ -312,7 +419,6 @@ export default function CanvasElementContent({ element, theme, assets, editing, 
           />
         );
       }
-      // Empty whiteboard placeholder — shows until user draws something
       return (
         <div style={{
           width: '100%', height: '100%', minHeight: 160,

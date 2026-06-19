@@ -170,6 +170,7 @@ export default function ElementWidget({ element, elementIndex, slideIndex, canva
   }
 
   // ── position styles ──────────────────────────────────────────
+  const rotate = element.position.rotate;
   const containerStyle: React.CSSProperties = displayPos
     ? {
         position: 'absolute',
@@ -180,6 +181,8 @@ export default function ElementWidget({ element, elementIndex, slideIndex, canva
         zIndex: element.position.zIndex ?? 1,
         minWidth: 40,
         minHeight: 24,
+        overflow: editing ? 'visible' : 'hidden',
+        ...(rotate ? { transform: `rotate(${rotate}deg)`, transformOrigin: 'center center' } : {}),
       }
     : {};
 
@@ -188,7 +191,7 @@ export default function ElementWidget({ element, elementIndex, slideIndex, canva
     : hover ? '1px solid rgba(99,102,241,0.45)' : '1px solid transparent';
 
   const showHandles = isSelected && !!displayPos;
-  const canEdit = ['text', 'heading'].includes(element.type);
+  const canEdit = ['text', 'heading', 'bullet-list'].includes(element.type);
   const isWhiteboard = element.type === 'whiteboard';
 
   function handlePositionStyle(h: Handle): React.CSSProperties {
