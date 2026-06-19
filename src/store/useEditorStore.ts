@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, createJSONStorage } from 'zustand/middleware';
+import { idbStorage } from '../utils/idb-storage.ts';
 import { markdownToPresentation, adocToMarkdown } from '@/core/parser';
 import type {
   Presentation,
@@ -444,6 +445,7 @@ export const useEditorStore = create<EditorState & EditorActions>()(
     }),
     {
       name: 'pptautomation-state',
+      storage: createJSONStorage(() => idbStorage),
       partialize: (state) => ({
         presentation: state.presentation,
         selectedSlideIndex: state.selectedSlideIndex,

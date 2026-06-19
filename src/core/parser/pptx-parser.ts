@@ -241,8 +241,11 @@ function shapeToElements(
   rels: SlideRels,
   imageAssets: Map<string, Asset>,
   allAssets: Asset[],
+  dims: SlideDims,
+  zIndex: number,
 ): PresentationElement[] {
   const elements: PresentationElement[] = [];
+  const position = extractPosition(shapeEl, dims, zIndex);
 
   // ── Picture (image) ──────────────────────────────────────────────────────
   const blipFill = shapeEl.querySelector('blipFill');
@@ -259,7 +262,7 @@ function shapeToElements(
         assetId:  asset.id,
         alt:      '',
         fit:      'contain',
-        position: { mode: 'flow' },
+        position,
       } as ImageElement);
     }
     return elements;
@@ -283,7 +286,7 @@ function shapeToElements(
         type:     'table',
         headers:  headerCells,
         rows:     dataRows,
-        position: { mode: 'flow' },
+        position,
       } as TableElement);
     }
     return elements;
@@ -308,7 +311,7 @@ function shapeToElements(
         type:     'heading',
         level:    1,
         content:  headingText,
-        position: { mode: 'flow' },
+        position,
       } as HeadingElement);
     }
     return elements;
@@ -334,7 +337,7 @@ function shapeToElements(
         type:     'bullet-list',
         ordered:  false,
         items,
-        position: { mode: 'flow' },
+        position,
       } as BulletListElement);
     }
   } else {
@@ -346,7 +349,7 @@ function shapeToElements(
         type:          'text',
         content:       singleText,
         contentFormat: 'plain' as const,
-        position:      { mode: 'flow' },
+        position,
       } as TextElement);
     }
   }
@@ -402,6 +405,63 @@ async function extractNotes(zip: JSZip, slideIndex: number): Promise<string> {
   }
 }
 
+// ─── Slide dimensions ─────────────────────────────────────────────────────────
+
+interface SlideDims {
+  w: number; // EMUs
+  h: number;
+}
+
+async function getSlideDimensions(zip: JSZip): Promise<SlideDims> {
+  const defaults: SlideDims = { w: 9144000, h: 5143500 }; // 16:9 widescreen
+  try {
+    const presFile = zip.file('ppt/presentation.xml');
+    if (!presFile) return defaults;
+    const xml   = parseXml(await presFile.async('string'));
+    const sldSz = xml.querySelector('sldSz');
+    if (!sldSz) return defaults;
+    return {
+      w: parseInt(sldSz.getAttribute('cx') ?? '9144000', 10) || defaults.w,
+      h: parseInt(sldSz.getAttribute('cy') ?? '5143500', 10) || defaults.h,
+    };
+  } catch {
+    return defaults;
+  }
+}
+
+// ─── Absolute position from <a:xfrm> ─────────────────────────────────────────
+
+function extractPosition(
+  shapeEl: Element,
+  dims: SlideDims,
+  zIndex: number,
+): PresentationElement['position'] {
+  // <p:spPr><a:xfrm><a:off x="…" y="…"/><a:ext cx="…" cy="…"/></a:xfrm>
+  const xfrm = shapeEl.querySelector('spPr > xfrm')
+            ?? shapeEl.querySelector('xfrm');
+  if (!xfrm) return { mode: 'flow' };
+
+  const off = xfrm.querySelector('off');
+  const ext = xfrm.querySelector('ext');
+  if (!off || !ext) return { mode: 'flow' };
+
+  const x  = parseInt(off.getAttribute('x')  ?? '0', 10);
+  const y  = parseInt(off.getAttribute('y')  ?? '0', 10);
+  const cx = parseInt(ext.getAttribute('cx') ?? '0', 10);
+  const cy = parseInt(ext.getAttribute('cy') ?? '0', 10);
+
+  if (cx <= 0 || cy <= 0) return { mode: 'flow' };
+
+  return {
+    mode:   'absolute',
+    x:      Math.max(0, (x  / dims.w) * 100),
+    y:      Math.max(0, (y  / dims.h) * 100),
+    width:  Math.min(100, (cx / dims.w) * 100),
+    height: Math.min(100, (cy / dims.h) * 100),
+    zIndex,
+  };
+}
+
 // ─── Slide ordering ───────────────────────────────────────────────────────────
 
 async function getSlideOrder(zip: JSZip): Promise<number[]> {
@@ -454,6 +514,7 @@ async function parseSlide(
   rawTheme: RawTheme,
   allAssets: Asset[],
   order: number,
+  dims: SlideDims,
 ): Promise<Slide | null> {
   const slidePath = `ppt/slides/slide${slideIndex}.xml`;
   const slideFile = zip.file(slidePath);
@@ -462,11 +523,11 @@ async function parseSlide(
   const xml  = parseXml(await slideFile.async('string'));
   const rels = await parseSlideRels(zip, slideIndex);
 
-  // Collect elements from all shapes
+  // Collect elements from all shapes, passing zIndex = shape order for stacking
   const shapes = Array.from(xml.querySelectorAll('sp, pic, graphicFrame'));
   const elements: PresentationElement[] = [];
-  for (const shape of shapes) {
-    const els = shapeToElements(shape, rels, imageAssets, allAssets);
+  for (let zi = 0; zi < shapes.length; zi++) {
+    const els = shapeToElements(shapes[zi], rels, imageAssets, allAssets, dims, zi);
     elements.push(...els);
   }
 
@@ -519,7 +580,7 @@ export async function pptxToPresentation(
   const imageAssets = await extractImages(zip);
 
   onProgress?.({ current: 3, total: 4, label: 'Parsing slides…' });
-  const slideOrder = await getSlideOrder(zip);
+  const [slideOrder, dims] = await Promise.all([getSlideOrder(zip), getSlideDimensions(zip)]);
 
   const allAssets: Asset[] = [];
   const slides: Slide[] = [];
@@ -527,7 +588,7 @@ export async function pptxToPresentation(
   for (let i = 0; i < slideOrder.length; i++) {
     const slideIndex = slideOrder[i];
     onProgress?.({ current: i, total: slideOrder.length, label: `Parsing slide ${i + 1} of ${slideOrder.length}…` });
-    const slide = await parseSlide(zip, slideIndex, imageAssets, rawTheme, allAssets, i);
+    const slide = await parseSlide(zip, slideIndex, imageAssets, rawTheme, allAssets, i, dims);
     if (slide) slides.push(slide);
   }
 
